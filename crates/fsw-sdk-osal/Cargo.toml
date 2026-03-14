@@ -1,0 +1,13 @@
+[package]
+name = "fsw-sdk-osal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "fsw_sdk_osal"
+path = "src/lib.rs"
+
+[dependencies]
+fsw-sdk-core = { path = "../fsw-sdk-core" }

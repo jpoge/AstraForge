@@ -1,0 +1,12 @@
+ekf_rate_hz = 25
+process_accel_noise = 0.35
+process_gyro_noise = 0.04
+process_gyro_bias_noise = 0.002
+process_accel_bias_noise = 0.01
+gps_position_noise = 2.5
+gps_velocity_noise = 0.35
+magnetometer_heading_noise = 0.12
+sim_duration_s = 6.0
+imu_period_ms = 20
+gps_period_ms = 200
+magnetometer_period_ms = 100

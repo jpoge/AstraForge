@@ -1,0 +1,25 @@
+[workspace]
+members = [
+  "crates/fsw-sdk-core",
+  "crates/fsw-sdk-time",
+  "crates/fsw-sdk-osal",
+  "crates/fsw-sdk-fdir",
+  "crates/fsw-sdk-runtime",
+  "crates/fsw-sdk-app",
+  "apps/simple-gnc",
+  "examples/minimal-sim"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "Apache-2.0"
+authors = ["AstraForge Team"]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = "warn"

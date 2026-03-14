@@ -1,0 +1,13 @@
+[package]
+name = "fsw-sdk-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "fsw_sdk_app"
+path = "src/lib.rs"
+
+[dependencies]
+fsw-sdk-core = { path = "../fsw-sdk-core" }

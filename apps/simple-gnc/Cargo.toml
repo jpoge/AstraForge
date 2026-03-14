@@ -1,0 +1,18 @@
+[package]
+name = "simple-gnc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "simple_gnc"
+path = "src/lib.rs"
+
+[dependencies]
+fsw-sdk-app = { path = "../../crates/fsw-sdk-app" }
+fsw-sdk-core = { path = "../../crates/fsw-sdk-core" }
+fsw-sdk-fdir = { path = "../../crates/fsw-sdk-fdir" }
+fsw-sdk-runtime = { path = "../../crates/fsw-sdk-runtime" }
+fsw-sdk-time = { path = "../../crates/fsw-sdk-time" }
