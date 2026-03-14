@@ -1,4 +1,4 @@
-// Copyright (c) 2026 James Pogemiller/Mad Mountain, LLC
+// Copyright (c) 2026 AstraForge Team/Mad Mountain, LLC
 // SPDX-License-Identifier: Apache-2.0
 
 use fsw_sdk_app::{AppContext, MissionApp};

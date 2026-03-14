@@ -1,6 +1,6 @@
 # AstraForge (Rust)
 
-Copyright (c) 2026 James Pogemiller/Mad Mountain, LLC
+Copyright (c) 2026 AstraForge Team/Mad Mountain, LLC
 
 AstraForge is a small Rust workspace for building flight-software-style applications with explicit contracts for component lifecycle, time, message transport, OS abstraction, and fault detection, isolation, and recovery (FDIR).
 
