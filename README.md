@@ -162,10 +162,18 @@ Run the standalone full-stack simulator:
 cargo run -p full-stack-sim
 ```
 
+That uses the default scenario file at [`apps/full-stack-sim/config/scenarios/default.toml`](C:\Users\jimpo\Desktop\FSW SDK\apps\full-stack-sim\config\scenarios\default.toml), which in turn selects a base vehicle file from [`apps/full-stack-sim/config/vehicles`](C:\Users\jimpo\Desktop\FSW SDK\apps\full-stack-sim\config\vehicles).
+
 Run the standalone full-stack simulator with its HTTP transport:
 
 ```powershell
 cargo run -p full-stack-sim -- serve 127.0.0.1:8080
+```
+
+Override the default scenario without recompiling:
+
+```powershell
+cargo run -p full-stack-sim -- --config apps/full-stack-sim/config/scenarios/default.toml
 ```
 
 Then open the graphical console in a browser:

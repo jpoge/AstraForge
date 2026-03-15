@@ -70,11 +70,13 @@ impl CommunicationApp {
 
     pub fn set_link_status(&mut self, status: LinkStatus) {
         self.link_status = status;
-        self.template.set_health(if matches!(status, LinkStatus::Degraded | LinkStatus::Offline) {
-            ComponentHealth::Degraded
-        } else {
-            ComponentHealth::Nominal
-        });
+        self.template.set_health(
+            if matches!(status, LinkStatus::Degraded | LinkStatus::Offline) {
+                ComponentHealth::Degraded
+            } else {
+                ComponentHealth::Nominal
+            },
+        );
     }
 
     fn poll_external_link(&mut self) {

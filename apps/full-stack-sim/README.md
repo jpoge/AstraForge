@@ -39,6 +39,14 @@ The simulation model now also includes:
 - geodetic vehicle position derived from the local flight state
 - a selectable geodetic target that can be updated from the web map
 - a configurable propulsion model with throttle, thrust, dry mass, propellant mass, ISP, and fuel-consumption scaling
+- a configurable 6-DoF vehicle model with aero reference geometry, force/moment coefficients, control-surface effectiveness, thrust-axis factors, and inertia scaling
+
+The sim now uses split configuration:
+
+- scenario/runtime settings in [`config/scenarios/default.toml`](C:\Users\jimpo\Desktop\FSW SDK\apps\full-stack-sim\config\scenarios\default.toml)
+- base airframe settings in [`config/vehicles/single-string-default.toml`](C:\Users\jimpo\Desktop\FSW SDK\apps\full-stack-sim\config\vehicles\single-string-default.toml)
+
+The scenario file points at a vehicle file with `vehicle_config = ...`, so you can swap airframes or scenario timing independently. The Rust `SimConfig` in `src/lib.rs` still carries a `vehicle` field of type `VehicleModelConfig`, but the normal way to tune the simulated airframe is to edit these config files instead of recompiling.
 
 ## Running
 
@@ -46,6 +54,12 @@ Start the interactive simulator:
 
 ```powershell
 cargo run -p full-stack-sim
+```
+
+That automatically loads the default scenario:
+
+```text
+apps/full-stack-sim/config/scenarios/default.toml
 ```
 
 Start the HTTP control server for a browser or other client:
@@ -64,6 +78,32 @@ You can also use:
 
 ```powershell
 cargo run -p full-stack-sim -- --http 127.0.0.1:8080
+```
+
+To run with a different scenario file:
+
+```powershell
+cargo run -p full-stack-sim -- --config apps/full-stack-sim/config/scenarios/default.toml
+```
+
+or:
+
+```powershell
+cargo run -p full-stack-sim -- --config path\\to\\my-scenario.toml serve 127.0.0.1:8080
+```
+
+The default launch vector points east with zero elevation at 1 km range. Override it when you need a different azimuth/elevation/range:
+
+```powershell
+cargo run -p full-stack-sim -- --launch-az 135 --launch-el 12 --launch-range 1500
+```
+
+`--launch-az` is the heading measured clockwise from true north, `--launch-el` is the elevation above the horizon, and `--launch-range` sets the synthetic target distance used to initialize the GNC stack.
+
+To define a new airframe, create another vehicle file under `config/vehicles/` and point a scenario at it:
+
+```text
+vehicle_config = ../vehicles/my-airframe.toml
 ```
 
 Useful commands:
@@ -108,6 +148,7 @@ The transport JSON is normalized for frontend use:
 - top-level map and propulsion state is exposed through `geodetic`, `target`, and `propulsion`
 - subsystem telemetry is structured under `telemetry.vehicle`, `telemetry.power`, `telemetry.thermal`, `telemetry.payload`, `telemetry.communications`, and `telemetry.guidance_navigation_control`
 - targeting and propulsion views are also available under `telemetry.targeting` and `telemetry.propulsion`
+  `telemetry.targeting.target_tracking` includes truth range, estimated range, cross-track error, vertical error, and closing speed for target convergence monitoring
 - the older human-readable status lines are still available under `telemetry.raw` for debugging
 - every snapshot and event includes `api_version` and `schema_version`
 - `GET /schema` exposes a `command_catalog` block with labels, descriptions, paths, methods, and field metadata for UI generation
@@ -122,6 +163,7 @@ The graphical console served at `GET /` includes:
 - generated command/control panels
 - subsystem health cards
 - navigation and instrument readouts
+- target-convergence readouts for truth/estimated range, cross-track error, vertical error, and closing speed
 - live anomaly and fault-response views
 - rolling trend plots for altitude, vertical speed, battery state of charge, and avionics temperature
   the UI automatically pauses the run loop when the vehicle reaches the ground and enters impact

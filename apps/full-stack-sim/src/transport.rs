@@ -11,9 +11,9 @@ use std::thread;
 use std::time::Duration;
 
 use crate::{
-    ControlSurfaceState, FlightComputerMode, FlightComputerStatus, FullStackSim, GeodeticPosition,
-    MissionPhase, PhaseControl, PropulsionState, SensorSnapshot, SimAnomaly, SimulationSnapshot,
-    SimulatorCommand, SystemSnapshot, TargetState, TruthState,
+    AeroState, ControlSurfaceState, FlightComputerMode, FlightComputerStatus, FullStackSim,
+    GeodeticPosition, LaunchVector, MissionPhase, PhaseControl, PropulsionState, SensorSnapshot,
+    SimAnomaly, SimulationSnapshot, SimulatorCommand, SystemSnapshot, TargetState, TruthState,
 };
 use fsw_sdk_core::SdkError;
 use payload_interface_template::PayloadMode;
@@ -23,10 +23,13 @@ use thermal_management_template::ThermalMode;
 use vehicle_management_template::{VehicleEvent, VehicleMode};
 
 const API_VERSION: &str = "2026-03-15";
-const SCHEMA_VERSION: &str = "1.0.0";
+const SCHEMA_VERSION: &str = "1.1.0";
 const INDEX_HTML: &str = include_str!("../ui/index.html");
 const APP_CSS: &str = include_str!("../ui/app.css");
 const APP_JS: &str = include_str!("../ui/app.js");
+const EARTH_RADIUS_M: f64 = 6_371_000.0;
+const ORIGIN_LAT_DEG: f64 = 34.7420;
+const ORIGIN_LON_DEG: f64 = -120.5724;
 
 pub type SharedSim = Arc<Mutex<FullStackSim>>;
 
@@ -98,13 +101,15 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
             .iter()
             .map(|anomaly| format!("\"{}\"", anomaly_name(*anomaly))),
     );
-    let fault_responses = join_json_array(snapshot.last_fault_responses.iter().map(|(component, response)| {
-        format!(
-            "{{\"component\":\"{}\",\"response\":\"{}\"}}",
-            escape_json(component),
-            escape_json(response)
-        )
-    }));
+    let fault_responses = join_json_array(snapshot.last_fault_responses.iter().map(
+        |(component, response)| {
+            format!(
+                "{{\"component\":\"{}\",\"response\":\"{}\"}}",
+                escape_json(component),
+                escape_json(response)
+            )
+        },
+    ));
 
     format!(
         concat!(
@@ -118,8 +123,10 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
             "\"truth\":{},",
             "\"geodetic\":{},",
             "\"target\":{},",
+            "\"launch_vector\":{},",
             "\"propulsion\":{},",
             "\"control_surfaces\":{},",
+            "\"aerodynamics\":{},",
             "\"sensors\":{},",
             "\"systems\":{},",
             "\"anomalies\":[{}],",
@@ -136,8 +143,10 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
         truth_state_json(snapshot.truth),
         geodetic_position_json(snapshot.geodetic),
         target_json(snapshot.target),
+        launch_vector_json(snapshot.launch_vector),
         propulsion_json(snapshot.propulsion),
         control_surface_json(snapshot.control_surfaces),
+        aerodynamic_json(snapshot.aerodynamics),
         sensor_snapshot_json(snapshot.sensors),
         system_snapshot_json(&snapshot.systems),
         anomalies,
@@ -175,6 +184,7 @@ pub fn schema_json() -> String {
             "\"target\",",
             "\"propulsion\",",
             "\"control_surfaces\",",
+            "\"aerodynamics\",",
             "\"sensors\",",
             "\"systems\",",
             "\"anomalies\",",
@@ -264,8 +274,10 @@ pub fn parse_command_json(body: &str) -> Result<SimulatorCommand, SdkError> {
             altitude_m: extract_json_f64(body, "altitude_m").unwrap_or(0.0),
         })),
         "configure_propulsion" => Ok(SimulatorCommand::ConfigurePropulsion(PropulsionState {
-            throttle_percent: extract_json_u32(body, "throttle_percent").ok_or(SdkError::InvalidConfig)?,
-            max_thrust_kn: extract_json_f64(body, "max_thrust_kn").ok_or(SdkError::InvalidConfig)?,
+            throttle_percent: extract_json_u32(body, "throttle_percent")
+                .ok_or(SdkError::InvalidConfig)?,
+            max_thrust_kn: extract_json_f64(body, "max_thrust_kn")
+                .ok_or(SdkError::InvalidConfig)?,
             isp_s: extract_json_f64(body, "isp_s").ok_or(SdkError::InvalidConfig)?,
             dry_mass_kg: extract_json_f64(body, "dry_mass_kg").ok_or(SdkError::InvalidConfig)?,
             propellant_mass_kg: extract_json_f64(body, "propellant_mass_kg")
@@ -275,6 +287,12 @@ pub fn parse_command_json(body: &str) -> Result<SimulatorCommand, SdkError> {
             mass_flow_kgps: 0.0,
             consumption_scale: extract_json_f64(body, "consumption_scale").unwrap_or(1.0),
         })),
+        "configure_launch_vector" => Ok(SimulatorCommand::ConfigureLaunchVector {
+            azimuth_deg: extract_json_f64(body, "azimuth_deg").ok_or(SdkError::InvalidConfig)?,
+            elevation_deg: extract_json_f64(body, "elevation_deg")
+                .ok_or(SdkError::InvalidConfig)?,
+            range_m: extract_json_f64(body, "range_m").ok_or(SdkError::InvalidConfig)?,
+        }),
         "inject" => Ok(SimulatorCommand::Inject(parse_anomaly(
             extract_json_string(body, "anomaly").as_deref(),
         )?)),
@@ -303,7 +321,9 @@ fn handle_connection(
     }
 
     let response = match (method, path) {
-        ("GET", "/") | ("GET", "/index.html") => text_response(200, "text/html; charset=utf-8", INDEX_HTML),
+        ("GET", "/") | ("GET", "/index.html") => {
+            text_response(200, "text/html; charset=utf-8", INDEX_HTML)
+        }
         ("GET", "/app.css") => text_response(200, "text/css; charset=utf-8", APP_CSS),
         ("GET", "/app.js") => text_response(200, "application/javascript; charset=utf-8", APP_JS),
         ("GET", "/snapshot") => {
@@ -329,9 +349,7 @@ fn handle_connection(
         | ("OPTIONS", "/")
         | ("OPTIONS", "/index.html")
         | ("OPTIONS", "/app.css")
-        | ("OPTIONS", "/app.js") => {
-            empty_response(204)
-        }
+        | ("OPTIONS", "/app.js") => empty_response(204),
         _ => json_response(404, "{\"error\":\"not_found\"}"),
     };
 
@@ -533,6 +551,13 @@ fn target_json(target: TargetState) -> String {
     )
 }
 
+fn launch_vector_json(vector: LaunchVector) -> String {
+    format!(
+        "{{\"azimuth_deg\":{},\"elevation_deg\":{},\"range_m\":{}}}",
+        vector.azimuth_deg, vector.elevation_deg, vector.range_m
+    )
+}
+
 fn propulsion_json(propulsion: PropulsionState) -> String {
     format!(
         concat!(
@@ -567,6 +592,31 @@ fn control_surface_json(control: ControlSurfaceState) -> String {
         control.pitch_surface,
         control.yaw_surface,
         vec3_json(control.desired_attitude_rad)
+    )
+}
+
+fn aerodynamic_json(aero: AeroState) -> String {
+    format!(
+        concat!(
+            "{{",
+            "\"air_density_kgpm3\":{},",
+            "\"dynamic_pressure_pa\":{},",
+            "\"mach\":{},",
+            "\"alpha_rad\":{},",
+            "\"beta_rad\":{},",
+            "\"body_velocity_mps\":{},",
+            "\"aerodynamic_force_body_n\":{},",
+            "\"aerodynamic_moment_body_nm\":{}",
+            "}}"
+        ),
+        aero.air_density_kgpm3,
+        aero.dynamic_pressure_pa,
+        aero.mach,
+        aero.alpha_rad,
+        aero.beta_rad,
+        vec3_json(aero.body_velocity_mps),
+        vec3_json(aero.aerodynamic_force_body_n),
+        vec3_json(aero.aerodynamic_moment_body_nm)
     )
 }
 
@@ -636,9 +686,9 @@ fn telemetry_snapshot_json(snapshot: &SimulationSnapshot) -> String {
             "\"thermal\":{{\"mode\":\"{}\",\"health\":\"{}\",\"zones\":[{}, {}, {}]}},",
             "\"payload\":{{\"mode\":\"{}\",\"health\":\"{}\",\"current_a\":{}}},",
             "\"communications\":{{\"link_status\":\"{}\",\"health\":\"{}\",\"signal_strength_dbm\":{},\"latest_downlink_frame\":\"{}\"}},",
-            "\"targeting\":{{\"target\":{},\"vehicle_geodetic\":{}}},",
+            "\"targeting\":{{\"target\":{},\"vehicle_geodetic\":{},\"target_tracking\":{}}},",
             "\"propulsion\":{},",
-            "\"guidance_navigation_control\":{{\"solution\":{},\"control_surfaces\":{}}},",
+            "\"guidance_navigation_control\":{{\"solution\":{},\"control_surfaces\":{},\"aerodynamics\":{}}},",
             "\"raw\":{{",
             "\"vehicle_mode_line\":\"{}\",",
             "\"power_status_line\":\"{}\",",
@@ -670,9 +720,11 @@ fn telemetry_snapshot_json(snapshot: &SimulationSnapshot) -> String {
         escape_json(&snapshot.telemetry.latest_downlink_frame),
         target_json(snapshot.target),
         geodetic_position_json(snapshot.geodetic),
+        target_tracking_json(snapshot),
         propulsion_json(snapshot.propulsion),
         navigation_solution_json(snapshot.systems.gnc_solution),
         control_surface_json(snapshot.control_surfaces),
+        aerodynamic_json(snapshot.aerodynamics),
         escape_json(&snapshot.telemetry.vehicle_mode_line),
         escape_json(&snapshot.telemetry.power_status_line),
         escape_json(&snapshot.telemetry.thermal_status_line),
@@ -735,6 +787,83 @@ fn navigation_solution_json(solution: NavigationSolution) -> String {
     )
 }
 
+fn target_tracking_json(snapshot: &SimulationSnapshot) -> String {
+    let target_local = local_from_target(snapshot.target);
+    let truth_error = sub_vec3(target_local, snapshot.truth.position_m);
+    let estimate_error = sub_vec3(target_local, snapshot.systems.gnc_solution.position_m);
+    let estimated_yaw = snapshot.systems.gnc_solution.attitude_rad[2];
+    let forward_axis = [estimated_yaw.cos(), estimated_yaw.sin()];
+    let right_axis = [-estimated_yaw.sin(), estimated_yaw.cos()];
+    let estimate_horizontal = [estimate_error[0], estimate_error[1]];
+    let truth_range_m = norm3(truth_error);
+    let estimated_range_m = norm3(estimate_error);
+    let horizontal_range_m = norm2(estimate_horizontal);
+    let along_track_error_m = dot2(estimate_horizontal, forward_axis);
+    let cross_track_error_m = dot2(estimate_horizontal, right_axis);
+    let vertical_error_m = estimate_error[2];
+    let closing_speed_mps = if estimated_range_m <= f64::EPSILON {
+        0.0
+    } else {
+        dot3(
+            snapshot.systems.gnc_solution.velocity_mps,
+            [
+                estimate_error[0] / estimated_range_m,
+                estimate_error[1] / estimated_range_m,
+                estimate_error[2] / estimated_range_m,
+            ],
+        )
+    };
+
+    format!(
+        concat!(
+            "{{",
+            "\"truth_range_m\":{},",
+            "\"estimated_range_m\":{},",
+            "\"horizontal_range_m\":{},",
+            "\"along_track_error_m\":{},",
+            "\"cross_track_error_m\":{},",
+            "\"vertical_error_m\":{},",
+            "\"closing_speed_mps\":{}",
+            "}}"
+        ),
+        truth_range_m,
+        estimated_range_m,
+        horizontal_range_m,
+        along_track_error_m,
+        cross_track_error_m,
+        vertical_error_m,
+        closing_speed_mps
+    )
+}
+
+fn local_from_target(target: TargetState) -> [f64; 3] {
+    let north_m = (target.latitude_deg - ORIGIN_LAT_DEG).to_radians() * EARTH_RADIUS_M;
+    let east_m = (target.longitude_deg - ORIGIN_LON_DEG).to_radians()
+        * EARTH_RADIUS_M
+        * ORIGIN_LAT_DEG.to_radians().cos();
+    [east_m, north_m, target.altitude_m]
+}
+
+fn sub_vec3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
+}
+
+fn dot2(left: [f64; 2], right: [f64; 2]) -> f64 {
+    left[0] * right[0] + left[1] * right[1]
+}
+
+fn dot3(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+fn norm2(value: [f64; 2]) -> f64 {
+    dot2(value, value).sqrt()
+}
+
+fn norm3(value: [f64; 3]) -> f64 {
+    dot3(value, value).sqrt()
+}
+
 fn command_catalog() -> Vec<String> {
     vec![
         command_descriptor_json(
@@ -772,6 +901,12 @@ fn command_catalog() -> Vec<String> {
             "Configure Propulsion",
             "Update throttle, propulsion, and fuel parameters for the vehicle.",
             "[{\"name\":\"throttle_percent\",\"type\":\"u32\",\"required\":true,\"default\":85,\"min\":0,\"max\":100},{\"name\":\"max_thrust_kn\",\"type\":\"f64\",\"required\":true},{\"name\":\"isp_s\",\"type\":\"f64\",\"required\":true},{\"name\":\"dry_mass_kg\",\"type\":\"f64\",\"required\":true},{\"name\":\"propellant_mass_kg\",\"type\":\"f64\",\"required\":true},{\"name\":\"consumption_scale\",\"type\":\"f64\",\"required\":false,\"default\":1.0}]",
+        ),
+        command_descriptor_json(
+            "configure_launch_vector",
+            "Set Launch Vector",
+            "Adjust the initial azimuth, elevation, and range for the launch target.",
+            "[{\"name\":\"azimuth_deg\",\"type\":\"f64\",\"required\":true,\"default\":90.0},{\"name\":\"elevation_deg\",\"type\":\"f64\",\"required\":true,\"default\":0.0},{\"name\":\"range_m\",\"type\":\"f64\",\"required\":true,\"default\":1000.0,\"min\":1.0}]",
         ),
         command_descriptor_json(
             "inject",
@@ -1055,10 +1190,11 @@ mod tests {
         let sim = FullStackSim::new(SimConfig::default()).expect("build sim");
         let snapshot = snapshot_json(&sim.snapshot());
         assert!(snapshot.contains("\"api_version\":\"2026-03-15\""));
-        assert!(snapshot.contains("\"schema_version\":\"1.0.0\""));
+        assert!(snapshot.contains("\"schema_version\":\"1.1.0\""));
         assert!(snapshot.contains("\"phase\":\"pad\""));
         assert!(snapshot.contains("\"telemetry\":{\"vehicle\":"));
         assert!(snapshot.contains("\"raw\":{\"vehicle_mode_line\""));
+        assert!(snapshot.contains("\"target_tracking\":{"));
     }
 
     #[test]
@@ -1072,7 +1208,8 @@ mod tests {
 
     #[test]
     fn server_shares_sim_handle() {
-        let server = HttpSimServer::new(FullStackSim::new(SimConfig::default()).expect("build sim"));
+        let server =
+            HttpSimServer::new(FullStackSim::new(SimConfig::default()).expect("build sim"));
         let shared = server.shared_sim();
         assert!(shared.lock().is_ok());
     }

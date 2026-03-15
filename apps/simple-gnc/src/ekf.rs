@@ -164,10 +164,8 @@ impl ExtendedKalmanFilter {
             q[IDX_X + axis][IDX_X + axis] = 0.25 * accel_var * dt4;
             q[IDX_VX + axis][IDX_VX + axis] = accel_var * dt2;
             q[IDX_ROLL + axis][IDX_ROLL + axis] = gyro_var * dt2;
-            q[IDX_GYRO_BIAS_X + axis][IDX_GYRO_BIAS_X + axis] =
-                gyro_bias_var * dt_s.max(1.0e-3);
-            q[IDX_ACCEL_BIAS_X + axis][IDX_ACCEL_BIAS_X + axis] =
-                accel_bias_var * dt_s.max(1.0e-3);
+            q[IDX_GYRO_BIAS_X + axis][IDX_GYRO_BIAS_X + axis] = gyro_bias_var * dt_s.max(1.0e-3);
+            q[IDX_ACCEL_BIAS_X + axis][IDX_ACCEL_BIAS_X + axis] = accel_bias_var * dt_s.max(1.0e-3);
         }
 
         self.covariance = add_matrix(&multiply_fpf_t(&f, &self.covariance), &q);
@@ -187,7 +185,11 @@ impl ExtendedKalmanFilter {
     pub fn update_magnetometer(&mut self, mag: &MagnetometerReading) {
         let heading = heading_from_magnetometer(
             mag.magnetic_field_body,
-            [self.state[IDX_ROLL], self.state[IDX_PITCH], self.state[IDX_YAW]],
+            [
+                self.state[IDX_ROLL],
+                self.state[IDX_PITCH],
+                self.state[IDX_YAW],
+            ],
         );
         self.update_scalar(
             IDX_YAW,
@@ -204,7 +206,11 @@ impl ExtendedKalmanFilter {
             timestamp: self.solution_time,
             position_m: [self.state[IDX_X], self.state[IDX_Y], self.state[IDX_Z]],
             velocity_mps: [self.state[IDX_VX], self.state[IDX_VY], self.state[IDX_VZ]],
-            attitude_rad: [self.state[IDX_ROLL], self.state[IDX_PITCH], self.state[IDX_YAW]],
+            attitude_rad: [
+                self.state[IDX_ROLL],
+                self.state[IDX_PITCH],
+                self.state[IDX_YAW],
+            ],
             gyro_bias_rps: [
                 self.state[IDX_GYRO_BIAS_X],
                 self.state[IDX_GYRO_BIAS_Y],
@@ -282,11 +288,7 @@ fn wrap_angle(angle: f64) -> f64 {
 }
 
 fn subtract_vec3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
-    [
-        left[0] - right[0],
-        left[1] - right[1],
-        left[2] - right[2],
-    ]
+    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
 }
 
 fn multiply_matrix_vec3(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3] {

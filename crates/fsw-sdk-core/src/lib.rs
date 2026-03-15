@@ -9,7 +9,9 @@ pub mod fdir;
 pub mod message;
 pub mod time;
 
-pub use component::{ComponentHealth, ComponentId, ComponentLifecycleState, DependencyLevel, FswComponent};
+pub use component::{
+    ComponentHealth, ComponentId, ComponentLifecycleState, DependencyLevel, FswComponent,
+};
 pub use error::SdkError;
 pub use fdir::{FaultClass, FaultEvent, FaultResponse};
 pub use message::{MessageBus, TopicName};

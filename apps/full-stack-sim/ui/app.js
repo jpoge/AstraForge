@@ -47,6 +47,10 @@ const elements = {
   truthVelocity: document.getElementById("truth-velocity"),
   gncAttitude: document.getElementById("gnc-attitude"),
   downrangeValue: document.getElementById("downrange-value"),
+  targetRangeValue: document.getElementById("target-range-value"),
+  crossTrackValue: document.getElementById("cross-track-value"),
+  verticalErrorValue: document.getElementById("vertical-error-value"),
+  closingSpeedValue: document.getElementById("closing-speed-value"),
   trendPositionValue: document.getElementById("trend-position-value"),
   trendVelocityValue: document.getElementById("trend-velocity-value"),
   trendAttitudeValue: document.getElementById("trend-attitude-value"),
@@ -90,6 +94,10 @@ const elements = {
   step1: document.getElementById("step-1"),
   step10: document.getElementById("step-10"),
   resetButton: document.getElementById("reset-button"),
+  launchVectorForm: document.getElementById("launch-vector-form"),
+  launchAzInput: document.getElementById("launch-az-input"),
+  launchElInput: document.getElementById("launch-el-input"),
+  launchRangeInput: document.getElementById("launch-range-input"),
   commandTemplate: document.getElementById("select-command-template"),
 };
 
@@ -165,6 +173,18 @@ function bindTopLevelControls() {
   });
   elements.windowsCloseButton.addEventListener("click", () => {
     elements.windowsPopup.setAttribute("hidden", "");
+  });
+  elements.launchVectorForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const az = Number(elements.launchAzInput.value) || 90;
+    const el = Number(elements.launchElInput.value) || 0;
+    const range = Number(elements.launchRangeInput.value) || 1000;
+    await sendCommand({
+      command: "configure_launch_vector",
+      azimuth_deg: clamp(az, 0, 360),
+      elevation_deg: clamp(el, -90, 90),
+      range_m: Math.max(range, 1),
+    });
   });
 }
 
@@ -689,6 +709,12 @@ function renderSnapshot(snapshot) {
     "rad"
   );
   elements.downrangeValue.textContent = `${formatNumber(snapshot.sensors.downrange_m)} m`;
+  const targetTracking = snapshot.telemetry.targeting.target_tracking;
+  elements.targetRangeValue.textContent =
+    `${formatNumber(targetTracking.truth_range_m)} m truth / ${formatNumber(targetTracking.estimated_range_m)} m est`;
+  elements.crossTrackValue.textContent = `${formatNumber(targetTracking.cross_track_error_m)} m`;
+  elements.verticalErrorValue.textContent = `${formatNumber(targetTracking.vertical_error_m)} m`;
+  elements.closingSpeedValue.textContent = `${formatNumber(targetTracking.closing_speed_mps)} m/s`;
 
   elements.radarAltitude.textContent = `${formatNumber(snapshot.sensors.radar_altitude_m)} m`;
   elements.verticalSpeed.textContent = `${formatNumber(snapshot.sensors.vertical_speed_mps)} m/s`;
@@ -721,6 +747,7 @@ function renderSnapshot(snapshot) {
 
   renderSystems(snapshot);
   renderMap(snapshot);
+  renderLaunchVector(snapshot.launch_vector);
   renderTrends(snapshot);
   renderAnomalies(snapshot.anomalies);
   renderFaults(snapshot.last_fault_responses);
@@ -808,6 +835,40 @@ function renderSystems(snapshot) {
 function renderMap(snapshot) {
   drawProjectedMap(snapshot);
   elements.mapView.textContent = `${state.map.plane} zoom ${state.map.zoom.toFixed(2)}`;
+}
+
+function drawProjectedMap(snapshot) {
+  const canvas = elements.missionMap;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 720;
+  const height = canvas.clientHeight || 250;
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  const { centerX, centerY, scale } = mapProjectionContext(snapshot, width, height);
+
+  drawMapGrid(ctx, width, height, centerX, centerY, scale);
+  drawMapAxes(ctx, width, height, centerX, centerY);
+  drawMapTrail(ctx, state.history.map((point) => point.truthPosition), centerX, centerY, scale);
+  drawMapMarker(ctx, snapshot.truth.position_m, centerX, centerY, scale, "#5dc2ff", "Vehicle");
+  drawMapMarker(ctx, localFromGeodetic(snapshot.target), centerX, centerY, scale, "#ffb84d", "Target");
+  drawLaunchVectorArrow(ctx, snapshot, centerX, centerY, scale);
+}
+
+function renderLaunchVector(vector) {
+  if (document.activeElement !== elements.launchAzInput) {
+    elements.launchAzInput.value = formatFixed(vector.azimuth_deg);
+  }
+  if (document.activeElement !== elements.launchElInput) {
+    elements.launchElInput.value = formatFixed(vector.elevation_deg);
+  }
+  if (document.activeElement !== elements.launchRangeInput) {
+    elements.launchRangeInput.value = formatFixed(vector.range_m, 0);
+  }
 }
 
 function renderTrends(snapshot) {
@@ -923,32 +984,6 @@ function bindMapControls() {
   });
 }
 
-function drawProjectedMap(snapshot) {
-  const canvas = elements.missionMap;
-  const ctx = canvas.getContext("2d");
-  const dpr = window.devicePixelRatio || 1;
-  const width = canvas.clientWidth || 720;
-  const height = canvas.clientHeight || 250;
-  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-  }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-  const centerX = width * 0.5 + state.map.panX;
-  const centerY = height * 0.5 + state.map.panY;
-  const targetLocal = localFromGeodetic(snapshot.target);
-  const trailPoints = state.history.map((point) => point.truthPosition);
-  const extents = buildMapExtents(trailPoints, snapshot.truth.position_m, targetLocal);
-  const scale = computeMapScale(extents, width, height);
-
-  drawMapGrid(ctx, width, height, centerX, centerY, scale);
-  drawMapAxes(ctx, width, height, centerX, centerY);
-  drawMapTrail(ctx, trailPoints, centerX, centerY, scale);
-  drawMapMarker(ctx, snapshot.truth.position_m, centerX, centerY, scale, "#5dc2ff", "Vehicle");
-  drawMapMarker(ctx, targetLocal, centerX, centerY, scale, "#ffb84d", "Target");
-}
-
 function drawMapGrid(ctx, width, height, centerX, centerY, scale) {
   ctx.strokeStyle = "rgba(145, 173, 182, 0.12)";
   ctx.lineWidth = 1;
@@ -1016,44 +1051,79 @@ function drawMapMarker(ctx, position, centerX, centerY, scale, color, label) {
   ctx.fillText(label, point.x + 9, point.y - 8);
 }
 
+function drawLaunchVectorArrow(ctx, snapshot, centerX, centerY, scale) {
+  const origin = projectLocalToCanvas(snapshot.truth.position_m, centerX, centerY, scale);
+  const launchLocal = launchVectorToLocal(snapshot.launch_vector);
+  const targetPos = addVec3(snapshot.truth.position_m, launchLocal);
+  const tip = projectLocalToCanvas(targetPos, centerX, centerY, scale);
+  ctx.strokeStyle = "rgba(255, 214, 86, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(tip.x, tip.y);
+  ctx.stroke();
+  const angle = Math.atan2(tip.y - origin.y, tip.x - origin.x);
+  const headLength = 10;
+  ctx.fillStyle = "rgba(255, 214, 86, 0.9)";
+  ctx.beginPath();
+  ctx.moveTo(tip.x, tip.y);
+  ctx.lineTo(tip.x - headLength * Math.cos(angle - Math.PI / 6), tip.y - headLength * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(tip.x - headLength * Math.cos(angle + Math.PI / 6), tip.y - headLength * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function launchVectorToLocal(vector) {
+  const az = radians(vector.azimuth_deg);
+  const el = radians(vector.elevation_deg);
+  const range = Math.max(vector.range_m, 1);
+  const horizontal = range * Math.cos(el);
+  const east = horizontal * Math.sin(az);
+  const north = horizontal * Math.cos(az);
+  const altitude = range * Math.sin(el);
+  return [east, north, altitude];
+}
+
 function mapClickToTarget(event) {
   const canvas = elements.missionMap;
   const rect = canvas.getBoundingClientRect();
   const width = rect.width;
   const height = rect.height;
-  const centerX = width * 0.5 + state.map.panX;
-  const centerY = height * 0.5 + state.map.panY;
-  const targetLocal = localFromGeodetic(state.snapshot.target);
-  const extents = buildMapExtents(
-    state.history.map((point) => point.truthPosition),
-    state.snapshot.truth.position_m,
-    targetLocal
+  const { centerX, centerY, scale, targetLocal } = mapProjectionContext(
+    state.snapshot,
+    width,
+    height
   );
-  const scale = computeMapScale(extents, width, height);
   const mapX = (event.clientX - rect.left - centerX) / scale;
   const mapY = -(event.clientY - rect.top - centerY) / scale;
-  const currentTarget = targetLocal;
   let local;
   switch (state.map.plane) {
     case "xz":
-      local = [mapX, currentTarget[1], mapY];
+      local = [mapX, targetLocal[1], mapY];
       break;
     case "yz":
-      local = [currentTarget[0], mapX, mapY];
+      local = [targetLocal[0], mapX, mapY];
       break;
     case "xy":
     default:
-      local = [mapX, mapY, currentTarget[2]];
+      local = [mapX, mapY, targetLocal[2]];
       break;
   }
   return geodeticFromLocal(local);
 }
 
 function focusMapOn(position) {
-  const projected = projectPlane(position);
-  state.map.panX = -projected[0] * state.map.zoom;
-  state.map.panY = projected[1] * state.map.zoom;
   state.map.zoom = Math.max(state.map.zoom, 1.6);
+  if (!state.snapshot) {
+    return;
+  }
+  const canvas = elements.missionMap;
+  const width = canvas.clientWidth || 720;
+  const height = canvas.clientHeight || 250;
+  const { scale } = mapProjectionContext(state.snapshot, width, height);
+  const projected = projectPlane(position);
+  state.map.panX = -projected[0] * scale;
+  state.map.panY = projected[1] * scale;
 }
 
 function cycleMapPlane() {
@@ -1115,6 +1185,22 @@ function computeMapScale(extents, width, height) {
   const scaleX = availableWidth / extents.spanX;
   const scaleY = availableHeight / extents.spanY;
   return Math.min(scaleX, scaleY) * state.map.zoom;
+}
+
+function mapProjectionContext(snapshot, width, height) {
+  const targetLocal = localFromGeodetic(snapshot.target);
+  const extents = buildMapExtents(
+    state.history.map((point) => point.truthPosition),
+    snapshot.truth.position_m,
+    targetLocal
+  );
+  const scale = computeMapScale(extents, width, height);
+  return {
+    centerX: width * 0.5 + state.map.panX,
+    centerY: height * 0.5 + state.map.panY,
+    scale,
+    targetLocal,
+  };
 }
 
 function localFromGeodetic(position) {
@@ -1238,6 +1324,10 @@ function formatAxisVector(values, prefix, unit) {
 
 function vectorDifference(lhs, rhs) {
   return [lhs[0] - rhs[0], lhs[1] - rhs[1], lhs[2] - rhs[2]];
+}
+
+function addVec3(lhs, rhs) {
+  return [lhs[0] + rhs[0], lhs[1] + rhs[1], lhs[2] + rhs[2]];
 }
 
 function radians(value) {

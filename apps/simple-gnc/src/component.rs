@@ -265,25 +265,50 @@ impl GncComponent {
             solution.position_m,
         );
         let feed_forward_velocity = self.guidance_reference.target_velocity_mps;
+        let horizontal_error = [position_error[0], position_error[1]];
+        let horizontal_range_m = norm2(horizontal_error);
+        let desired_yaw = if horizontal_range_m > 1.0 {
+            horizontal_error[1].atan2(horizontal_error[0])
+        } else {
+            solution.attitude_rad[2]
+        };
+        let forward_axis = [desired_yaw.cos(), desired_yaw.sin()];
+        let right_axis = [-desired_yaw.sin(), desired_yaw.cos()];
+        let horizontal_velocity = [solution.velocity_mps[0], solution.velocity_mps[1]];
+        let feed_forward_horizontal = [feed_forward_velocity[0], feed_forward_velocity[1]];
+        let forward_position_error = dot2(horizontal_error, forward_axis);
+        let right_position_error = dot2(horizontal_error, right_axis);
+        let forward_velocity = dot2(horizontal_velocity, forward_axis);
+        let right_velocity = dot2(horizontal_velocity, right_axis);
+        let forward_feed_forward = dot2(feed_forward_horizontal, forward_axis);
+        let right_feed_forward = dot2(feed_forward_horizontal, right_axis);
+        let phase_forward_bias = match self.guidance_reference.mode {
+            GuidanceMode::Hold => 0.0,
+            GuidanceMode::Ascent => 0.0,
+            GuidanceMode::Cruise => 0.0,
+            GuidanceMode::Landing => 0.0,
+        };
+        let forward_speed_command = clamp(
+            forward_feed_forward
+                + phase_forward_bias
+                + forward_position_error * self.config.control.position_gain,
+            0.0,
+            self.config.control.max_lateral_velocity_mps,
+        );
+        let right_speed_command = clamp(
+            right_feed_forward + right_position_error * self.config.control.position_gain,
+            -self.config.control.max_lateral_velocity_mps,
+            self.config.control.max_lateral_velocity_mps,
+        );
+        let vertical_speed_command = clamp(
+            feed_forward_velocity[2] + position_error[2] * self.config.control.position_gain,
+            -self.config.control.max_vertical_velocity_mps,
+            self.config.control.max_vertical_velocity_mps,
+        );
         let commanded_velocity = [
-            clamp(
-                feed_forward_velocity[0]
-                    + position_error[0] * self.config.control.position_gain,
-                -self.config.control.max_lateral_velocity_mps,
-                self.config.control.max_lateral_velocity_mps,
-            ),
-            clamp(
-                feed_forward_velocity[1]
-                    + position_error[1] * self.config.control.position_gain,
-                -self.config.control.max_lateral_velocity_mps,
-                self.config.control.max_lateral_velocity_mps,
-            ),
-            clamp(
-                feed_forward_velocity[2]
-                    + position_error[2] * self.config.control.position_gain,
-                -self.config.control.max_vertical_velocity_mps,
-                self.config.control.max_vertical_velocity_mps,
-            ),
+            forward_axis[0] * forward_speed_command + right_axis[0] * right_speed_command,
+            forward_axis[1] * forward_speed_command + right_axis[1] * right_speed_command,
+            vertical_speed_command,
         ];
         let velocity_error = sub_vec3(commanded_velocity, solution.velocity_mps);
         let commanded_accel = [
@@ -291,24 +316,26 @@ impl GncComponent {
             velocity_error[1] * self.config.control.velocity_gain,
             velocity_error[2] * self.config.control.velocity_gain,
         ];
-        let desired_yaw = if position_error[0].abs() + position_error[1].abs() > 1.0 {
-            position_error[1].atan2(position_error[0])
-        } else {
-            solution.attitude_rad[2]
-        };
+        let forward_accel = dot2([commanded_accel[0], commanded_accel[1]], forward_axis);
+        let right_accel = dot2([commanded_accel[0], commanded_accel[1]], right_axis);
+        let forward_velocity_error = forward_speed_command - forward_velocity;
+        let right_velocity_error = right_speed_command - right_velocity;
         let desired_roll = clamp(
-            -commanded_accel[1] * self.config.control.roll_gain / 4.0,
+            -(right_accel + 0.08 * right_velocity_error) * self.config.control.roll_gain / 4.0,
             -0.55,
             0.55,
         );
         let desired_pitch = match self.guidance_reference.mode {
             GuidanceMode::Landing => clamp(
-                -commanded_accel[2] * self.config.control.pitch_gain / 3.5,
+                (0.55 * forward_accel - 0.75 * commanded_accel[2]) * self.config.control.pitch_gain
+                    / 3.5,
                 -0.35,
                 0.4,
             ),
             GuidanceMode::Ascent | GuidanceMode::Cruise => clamp(
-                commanded_accel[2] * self.config.control.pitch_gain / 3.5,
+                (0.75 * forward_accel + 0.45 * commanded_accel[2] + 0.05 * forward_velocity_error)
+                    * self.config.control.pitch_gain
+                    / 3.5,
                 -0.4,
                 0.55,
             ),
@@ -435,11 +462,15 @@ pub fn new_shared_gnc_component(config: GncConfig) -> (SharedGncComponent, GncCo
 }
 
 fn sub_vec3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
-    [
-        left[0] - right[0],
-        left[1] - right[1],
-        left[2] - right[2],
-    ]
+    [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
+}
+
+fn dot2(left: [f64; 2], right: [f64; 2]) -> f64 {
+    left[0] * right[0] + left[1] * right[1]
+}
+
+fn norm2(value: [f64; 2]) -> f64 {
+    dot2(value, value).sqrt()
 }
 
 fn wrap_angle(angle: f64) -> f64 {
@@ -466,10 +497,7 @@ impl FswComponent for GncComponentProxy {
     }
 
     fn init(&mut self) -> Result<(), SdkError> {
-        let mut component = self
-            .inner
-            .lock()
-            .map_err(|_| SdkError::BackendFailure)?;
+        let mut component = self.inner.lock().map_err(|_| SdkError::BackendFailure)?;
         FswComponent::init(&mut *component)
     }
 
@@ -516,7 +544,7 @@ mod tests {
     use fsw_sdk_runtime::InMemoryBus;
     use fsw_sdk_time::StaticClock;
 
-    use super::{GncComponent, GncConfig, GNC_SOLUTION_TOPIC};
+    use super::{GncComponent, GncConfig, GuidanceMode, GuidanceReference, GNC_SOLUTION_TOPIC};
     use crate::{GpsReading, ImuReading, MagnetometerReading};
 
     #[test]
@@ -549,7 +577,10 @@ mod tests {
         let second = app.solution();
         assert!(second.position_m[0] > 0.0);
         assert!(second.position_m[2] < 0.0);
-        assert!(bus.receive(&GNC_SOLUTION_TOPIC).expect("read bus").is_some());
+        assert!(bus
+            .receive(&GNC_SOLUTION_TOPIC)
+            .expect("read bus")
+            .is_some());
     }
 
     #[test]
@@ -589,5 +620,47 @@ mod tests {
         assert!(solution.position_m[1] < -2.0);
         assert!(solution.position_m[2] > 1.0);
         assert!(solution.attitude_rad[2].abs() < 0.2);
+    }
+
+    #[test]
+    fn guidance_commands_toward_selected_target() {
+        let mut app = GncComponent::new(GncConfig::default());
+        let bus = InMemoryBus::new();
+        let clock = StaticClock::new();
+        let ctx = AppContext {
+            bus: &bus,
+            time: &clock,
+        };
+
+        app.set_guidance_reference(GuidanceReference {
+            target_position_m: [150.0, 120.0, 30.0],
+            target_velocity_mps: [0.0, 0.0, 5.0],
+            mode: GuidanceMode::Cruise,
+        });
+        app.submit_imu(ImuReading {
+            timestamp: fsw_sdk_core::MissionTime(0),
+            accel_body_mps2: [0.0, 0.0, 0.0],
+            gyro_body_rps: [0.0, 0.0, 0.0],
+        });
+        app.submit_gps(GpsReading {
+            timestamp: fsw_sdk_core::MissionTime(100),
+            position_m: [0.0, 0.0, 0.0],
+            velocity_mps: [0.0, 0.0, 0.0],
+        });
+        app.submit_magnetometer(MagnetometerReading {
+            timestamp: fsw_sdk_core::MissionTime(100),
+            magnetic_field_body: [1.0, 0.0, 0.0],
+        });
+        app.init(&ctx).expect("init");
+
+        clock.tick(DurationMs(100));
+        app.step(&ctx).expect("step");
+        let command = app.control_command();
+
+        assert!(command.target_velocity_mps[0] > 0.0);
+        assert!(command.target_velocity_mps[1] > 0.0);
+        assert!(command.desired_attitude_rad[2] > 0.4);
+        assert!(command.control_surfaces[1].abs() > 0.0);
+        assert!(command.control_surfaces[2].abs() > 0.0);
     }
 }

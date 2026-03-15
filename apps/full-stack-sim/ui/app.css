@@ -425,6 +425,15 @@ button.running {
   font-size: 0.88rem;
 }
 
+.emphasis-block {
+  background: linear-gradient(180deg, rgba(18, 42, 54, 0.98), rgba(12, 30, 41, 0.92));
+  border-color: rgba(93, 194, 255, 0.28);
+}
+
+.emphasis-block strong {
+  color: var(--accent-2);
+}
+
 .status-chip {
   display: inline-block;
   margin-top: 6px;
@@ -620,6 +629,37 @@ button.running {
 
 .propulsion-actions {
   grid-column: 1 / -1;
+}
+
+.launch-vector-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 6px;
+}
+
+.launch-vector-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.launch-vector-form input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  transition: border 0.2s ease;
+}
+
+.launch-vector-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.launch-vector-form button {
+  justify-self: flex-start;
 }
 
 .bar-row {

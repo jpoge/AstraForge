@@ -114,7 +114,10 @@ fn run_host_sim(config: &MissionConfig) -> Result<LaunchReport, SdkError> {
             app.step(&ctx)?;
         }
 
-        runtime.mark_heartbeat(&fsw_sdk_core::ComponentId(GNC_COMPONENT_ID.to_string()), now)?;
+        runtime.mark_heartbeat(
+            &fsw_sdk_core::ComponentId(GNC_COMPONENT_ID.to_string()),
+            now,
+        )?;
         let _responses = runtime.supervisor_step(now)?;
     }
 

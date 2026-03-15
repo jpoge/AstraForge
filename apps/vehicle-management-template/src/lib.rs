@@ -75,7 +75,9 @@ impl VehicleManagementApp {
             (VehicleMode::Boot, VehicleEvent::BootComplete) => VehicleMode::Safe,
             (VehicleMode::Safe, VehicleEvent::EnterOperational) => VehicleMode::Standby,
             (VehicleMode::Standby, VehicleEvent::EnterOperational) => VehicleMode::Operational,
-            (_, VehicleEvent::PowerEmergency | VehicleEvent::ThermalEmergency) => VehicleMode::Survival,
+            (_, VehicleEvent::PowerEmergency | VehicleEvent::ThermalEmergency) => {
+                VehicleMode::Survival
+            }
             (_, VehicleEvent::FaultDetected) => VehicleMode::Fault,
             (_, VehicleEvent::RecoverToSafe) => VehicleMode::Safe,
             (mode, _) => mode,

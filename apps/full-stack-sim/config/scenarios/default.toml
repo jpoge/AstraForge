@@ -1,0 +1,8 @@
+# Copyright (c) 2026 AstraForge Team/Mad Mountain, LLC
+# SPDX-License-Identifier: Apache-2.0
+
+vehicle_config = ../vehicles/single-string-default.toml
+
+step_ms = 100
+ekf_rate_hz = 25
+heartbeat_timeout_ms = 250

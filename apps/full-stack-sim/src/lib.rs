@@ -3,6 +3,7 @@
 
 //! Standalone full-stack host simulation for AstraForge mission apps.
 
+pub mod config;
 pub mod transport;
 
 use std::collections::BTreeSet;
@@ -28,9 +29,9 @@ use power_management_template::{
     PowerManagementApp, PowerMode, PowerSnapshot, POWER_COMPONENT_ID, POWER_STATUS_TOPIC,
 };
 use simple_gnc::{
-    new_shared_gnc_component, GncConfig, GncComponentProxy, GpsReading, ImuReading,
-    GncCommand, GuidanceMode, GuidanceReference, MagnetometerReading, NavigationSolution,
-    SharedGncComponent, GNC_COMPONENT_ID, GNC_SOLUTION_TOPIC,
+    new_shared_gnc_component, GncCommand, GncComponentProxy, GncConfig, GpsReading, GuidanceMode,
+    GuidanceReference, ImuReading, MagnetometerReading, NavigationSolution, SharedGncComponent,
+    GNC_COMPONENT_ID, GNC_SOLUTION_TOPIC,
 };
 use thermal_management_template::{
     ThermalManagementApp, ThermalMode, THERMAL_COMPONENT_ID, THERMAL_STATUS_TOPIC,
@@ -133,6 +134,13 @@ pub struct TargetState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LaunchVector {
+    pub azimuth_deg: f64,
+    pub elevation_deg: f64,
+    pub range_m: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PropulsionState {
     pub throttle_percent: u32,
     pub max_thrust_kn: f64,
@@ -151,6 +159,18 @@ pub struct ControlSurfaceState {
     pub pitch_surface: f64,
     pub yaw_surface: f64,
     pub desired_attitude_rad: [f64; 3],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AeroState {
+    pub air_density_kgpm3: f64,
+    pub dynamic_pressure_pa: f64,
+    pub mach: f64,
+    pub alpha_rad: f64,
+    pub beta_rad: f64,
+    pub body_velocity_mps: [f64; 3],
+    pub aerodynamic_force_body_n: [f64; 3],
+    pub aerodynamic_moment_body_nm: [f64; 3],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -183,8 +203,10 @@ pub struct SimulationSnapshot {
     pub truth: TruthState,
     pub geodetic: GeodeticPosition,
     pub target: TargetState,
+    pub launch_vector: LaunchVector,
     pub propulsion: PropulsionState,
     pub control_surfaces: ControlSurfaceState,
+    pub aerodynamics: AeroState,
     pub sensors: SensorSnapshot,
     pub systems: SystemSnapshot,
     pub anomalies: Vec<SimAnomaly>,
@@ -197,6 +219,85 @@ pub struct SimConfig {
     pub step_ms: u64,
     pub scheduler: SchedulerConfig,
     pub gnc: GncConfig,
+    pub vehicle: VehicleModelConfig,
+    pub launch_azimuth_deg: f64,
+    pub launch_elevation_deg: f64,
+    pub launch_range_m: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VehicleModelConfig {
+    pub reference_area_m2: f64,
+    pub reference_span_m: f64,
+    pub reference_chord_m: f64,
+    pub inertia_roll_scale: f64,
+    pub inertia_pitch_scale: f64,
+    pub inertia_yaw_scale: f64,
+    pub drag_base: f64,
+    pub drag_alpha2: f64,
+    pub drag_beta2: f64,
+    pub drag_mach_gain: f64,
+    pub side_force_beta: f64,
+    pub side_force_yaw_surface: f64,
+    pub lift_alpha: f64,
+    pub lift_pitch_surface: f64,
+    pub roll_moment_beta: f64,
+    pub roll_damping_p: f64,
+    pub roll_surface_gain: f64,
+    pub pitch_moment_alpha: f64,
+    pub pitch_damping_q: f64,
+    pub pitch_surface_gain: f64,
+    pub yaw_moment_beta: f64,
+    pub yaw_damping_r: f64,
+    pub yaw_surface_gain: f64,
+    pub launch_thrust_axis_factor: f64,
+    pub flight_thrust_axis_factor: f64,
+    pub landing_thrust_axis_factor: f64,
+    pub axial_damping_gain: f64,
+    pub lateral_damping_gain: f64,
+    pub vertical_damping_gain: f64,
+    pub max_body_rate_rps: f64,
+    pub max_body_accel_mps2: f64,
+    pub max_angular_accel_rps2: f64,
+}
+
+impl Default for VehicleModelConfig {
+    fn default() -> Self {
+        Self {
+            reference_area_m2: 1.85,
+            reference_span_m: 2.8,
+            reference_chord_m: 0.92,
+            inertia_roll_scale: 0.22,
+            inertia_pitch_scale: 0.18,
+            inertia_yaw_scale: 0.12,
+            drag_base: 0.18,
+            drag_alpha2: 0.85,
+            drag_beta2: 0.35,
+            drag_mach_gain: 0.06,
+            side_force_beta: -0.75,
+            side_force_yaw_surface: 0.42,
+            lift_alpha: -1.8,
+            lift_pitch_surface: 0.65,
+            roll_moment_beta: -0.22,
+            roll_damping_p: -0.48,
+            roll_surface_gain: 0.92,
+            pitch_moment_alpha: -1.15,
+            pitch_damping_q: -0.62,
+            pitch_surface_gain: 1.08,
+            yaw_moment_beta: 0.24,
+            yaw_damping_r: -0.36,
+            yaw_surface_gain: 0.88,
+            launch_thrust_axis_factor: 1.0,
+            flight_thrust_axis_factor: 0.62,
+            landing_thrust_axis_factor: 0.78,
+            axial_damping_gain: 0.028,
+            lateral_damping_gain: 0.028,
+            vertical_damping_gain: 0.018,
+            max_body_rate_rps: 2.5,
+            max_body_accel_mps2: 60.0,
+            max_angular_accel_rps2: 8.0,
+        }
+    }
 }
 
 impl Default for SimConfig {
@@ -205,7 +306,25 @@ impl Default for SimConfig {
             step_ms: 100,
             scheduler: SchedulerConfig::default(),
             gnc: GncConfig::default(),
+            vehicle: VehicleModelConfig::default(),
+            launch_azimuth_deg: 90.0,
+            launch_elevation_deg: 0.0,
+            launch_range_m: 1_000.0,
         }
+    }
+}
+
+impl SimConfig {
+    #[must_use]
+    pub fn initial_target_offset(&self) -> [f64; 3] {
+        let az_rad = self.launch_azimuth_deg.to_radians();
+        let el_rad = self.launch_elevation_deg.to_radians();
+        let range = self.launch_range_m.max(1.0);
+        let horizontal = range * el_rad.cos();
+        let east = horizontal * az_rad.sin();
+        let north = horizontal * az_rad.cos();
+        let altitude = range * el_rad.sin();
+        [east, north, altitude]
     }
 }
 
@@ -217,6 +336,11 @@ pub enum SimulatorCommand {
     SetPhaseControl(PhaseControl),
     SetTarget(TargetState),
     ConfigurePropulsion(PropulsionState),
+    ConfigureLaunchVector {
+        azimuth_deg: f64,
+        elevation_deg: f64,
+        range_m: f64,
+    },
     Inject(SimAnomaly),
     Clear(SimAnomaly),
     ClearAllAnomalies,
@@ -305,6 +429,7 @@ pub struct FullStackSim {
     target: TargetState,
     propulsion: PropulsionState,
     control_surfaces: ControlSurfaceState,
+    aerodynamics: AeroState,
     sensors: SensorSnapshot,
     telemetry: TelemetrySnapshot,
     last_fault_responses: Vec<(String, String)>,
@@ -324,7 +449,9 @@ impl FullStackSim {
 
         let (gnc, gnc_proxy): (SharedGncComponent, GncComponentProxy) =
             new_shared_gnc_component(config.gnc);
-        let comms = Arc::new(Mutex::new(CommunicationApp::new(CommunicationConfig::default())));
+        let comms = Arc::new(Mutex::new(CommunicationApp::new(
+            CommunicationConfig::default(),
+        )));
         let vehicle = Arc::new(Mutex::new(VehicleManagementApp::new()));
         let power = Arc::new(Mutex::new(PowerManagementApp::new()));
         let thermal = Arc::new(Mutex::new(ThermalManagementApp::new()));
@@ -362,10 +489,12 @@ impl FullStackSim {
         };
         let initial_time = MissionTime(0);
         let geodetic = geodetic_from_local(truth.position_m);
+        let launch_local = config.initial_target_offset();
+        let target_geodetic = geodetic_from_local(launch_local);
         let target = TargetState {
-            latitude_deg: ORIGIN_LAT_DEG + 0.22,
-            longitude_deg: ORIGIN_LON_DEG + 0.36,
-            altitude_m: 0.0,
+            latitude_deg: target_geodetic.latitude_deg,
+            longitude_deg: target_geodetic.longitude_deg,
+            altitude_m: target_geodetic.altitude_m,
         };
         let propulsion = PropulsionState {
             throttle_percent: 85,
@@ -383,6 +512,16 @@ impl FullStackSim {
             pitch_surface: 0.0,
             yaw_surface: 0.0,
             desired_attitude_rad: [0.0; 3],
+        };
+        let aerodynamics = AeroState {
+            air_density_kgpm3: 1.225,
+            dynamic_pressure_pa: 0.0,
+            mach: 0.0,
+            alpha_rad: 0.0,
+            beta_rad: 0.0,
+            body_velocity_mps: [0.0; 3],
+            aerodynamic_force_body_n: [0.0; 3],
+            aerodynamic_moment_body_nm: [0.0; 3],
         };
         let sensors = sensor_from_truth(
             initial_time,
@@ -412,6 +551,7 @@ impl FullStackSim {
             target,
             propulsion,
             control_surfaces,
+            aerodynamics,
             sensors,
             telemetry: TelemetrySnapshot::default(),
             last_fault_responses: Vec::new(),
@@ -459,6 +599,16 @@ impl FullStackSim {
                 self.propulsion.consumption_scale = config.consumption_scale.clamp(0.05, 5.0);
                 self.refresh(false)
             }
+            SimulatorCommand::ConfigureLaunchVector {
+                azimuth_deg,
+                elevation_deg,
+                range_m,
+            } => {
+                self.config.launch_azimuth_deg = azimuth_deg;
+                self.config.launch_elevation_deg = elevation_deg;
+                self.config.launch_range_m = range_m.max(1.0);
+                self.refresh(false)
+            }
             SimulatorCommand::Inject(anomaly) => {
                 self.anomalies.insert(anomaly);
                 self.refresh(false)
@@ -503,16 +653,17 @@ impl FullStackSim {
         let comm_link_status = lock_arc(&self.comms)
             .map(|comms| comms.link_status())
             .unwrap_or(LinkStatus::Offline);
-        let gnc_solution = lock_arc(&self.gnc)
-            .map(|gnc| gnc.solution())
-            .unwrap_or(NavigationSolution {
-                timestamp: MissionTime(0),
-                position_m: [0.0; 3],
-                velocity_mps: [0.0; 3],
-                attitude_rad: [0.0; 3],
-                gyro_bias_rps: [0.0; 3],
-                accel_bias_mps2: [0.0; 3],
-            });
+        let gnc_solution =
+            lock_arc(&self.gnc)
+                .map(|gnc| gnc.solution())
+                .unwrap_or(NavigationSolution {
+                    timestamp: MissionTime(0),
+                    position_m: [0.0; 3],
+                    velocity_mps: [0.0; 3],
+                    attitude_rad: [0.0; 3],
+                    gyro_bias_rps: [0.0; 3],
+                    accel_bias_mps2: [0.0; 3],
+                });
 
         SimulationSnapshot {
             mission_time: self.platform.clock().now_monotonic(),
@@ -522,8 +673,14 @@ impl FullStackSim {
             truth: self.truth,
             geodetic: self.geodetic,
             target: self.target,
+            launch_vector: LaunchVector {
+                azimuth_deg: self.config.launch_azimuth_deg,
+                elevation_deg: self.config.launch_elevation_deg,
+                range_m: self.config.launch_range_m,
+            },
             propulsion: self.propulsion,
             control_surfaces: self.control_surfaces,
+            aerodynamics: self.aerodynamics,
             sensors: self.sensors,
             systems: SystemSnapshot {
                 vehicle_mode,
@@ -545,7 +702,9 @@ impl FullStackSim {
     }
 
     fn step_once(&mut self) -> Result<(), SdkError> {
-        self.platform.clock().tick(fsw_sdk_core::DurationMs(self.config.step_ms));
+        self.platform
+            .clock()
+            .tick(fsw_sdk_core::DurationMs(self.config.step_ms));
         let previous_phase = self.phase;
 
         self.advance_truth(self.config.step_ms as f64 / 1000.0);
@@ -652,7 +811,11 @@ impl FullStackSim {
                 LinkStatus::Standby
             };
             comms.set_link_status(link_status);
-            comms.queue_downlink_frame(render_downlink_frame(self.phase, &self.anomalies, &self.sensors));
+            comms.queue_downlink_frame(render_downlink_frame(
+                self.phase,
+                &self.anomalies,
+                &self.sensors,
+            ));
             MissionApp::step(&mut *comms, &ctx)?;
         }
 
@@ -673,14 +836,18 @@ impl FullStackSim {
     }
 
     fn collect_telemetry(&mut self) -> Result<(), SdkError> {
-        self.telemetry.vehicle_mode_line = read_latest_line(self.platform.bus(), &VEHICLE_MODE_TOPIC)?;
-        self.telemetry.power_status_line = read_latest_line(self.platform.bus(), &POWER_STATUS_TOPIC)?;
+        self.telemetry.vehicle_mode_line =
+            read_latest_line(self.platform.bus(), &VEHICLE_MODE_TOPIC)?;
+        self.telemetry.power_status_line =
+            read_latest_line(self.platform.bus(), &POWER_STATUS_TOPIC)?;
         self.telemetry.thermal_status_line =
             read_latest_line(self.platform.bus(), &THERMAL_STATUS_TOPIC)?;
         self.telemetry.payload_status_line =
             read_latest_line(self.platform.bus(), &PAYLOAD_STATUS_TOPIC)?;
-        self.telemetry.comm_status_line = read_latest_line(self.platform.bus(), &COMM_STATUS_TOPIC)?;
-        self.telemetry.gnc_solution_line = read_latest_line(self.platform.bus(), &GNC_SOLUTION_TOPIC)?;
+        self.telemetry.comm_status_line =
+            read_latest_line(self.platform.bus(), &COMM_STATUS_TOPIC)?;
+        self.telemetry.gnc_solution_line =
+            read_latest_line(self.platform.bus(), &GNC_SOLUTION_TOPIC)?;
         self.telemetry.latest_downlink_frame =
             read_latest_line(self.platform.bus(), &COMM_DOWNLINK_TOPIC)?;
         Ok(())
@@ -702,15 +869,16 @@ impl FullStackSim {
         self.phase = match self.phase {
             MissionPhase::PadInitialization if elapsed >= 5_000 => MissionPhase::Launch,
             MissionPhase::Launch if altitude >= 750.0 || elapsed >= 20_000 => MissionPhase::Flight,
-            MissionPhase::Flight if vertical_speed < -8.0 && altitude <= 400.0 => MissionPhase::Landing,
+            MissionPhase::Flight if vertical_speed < -8.0 && altitude <= 400.0 => {
+                MissionPhase::Landing
+            }
             MissionPhase::Landing if altitude <= 0.0 => MissionPhase::Impact,
             phase => phase,
         };
     }
 
     fn advance_truth(&mut self, dt_s: f64) {
-        let mut accel_nav = [0.0, 0.0, 0.0];
-        let body_rates;
+        let accel_nav;
         let gnc_command = lock_arc(&self.gnc)
             .map(|gnc| gnc.control_command())
             .unwrap_or(GncCommand {
@@ -762,50 +930,25 @@ impl FullStackSim {
         self.propulsion.propellant_mass_kg -= propellant_used;
         self.propulsion.total_mass_kg =
             (self.propulsion.dry_mass_kg + self.propulsion.propellant_mass_kg).max(1.0);
-        let thrust_accel = current_thrust_n / self.propulsion.total_mass_kg;
-        let control_authority = match self.phase {
-            MissionPhase::PadInitialization => 0.0,
-            MissionPhase::Launch => 0.8,
-            MissionPhase::Flight => 1.0,
-            MissionPhase::Landing => 0.7,
-            MissionPhase::Impact => 0.0,
-        };
+        let mass_kg = self.propulsion.total_mass_kg;
 
         match self.phase {
             MissionPhase::PadInitialization => {
                 self.truth.position_m[2] = 0.0;
                 self.truth.velocity_mps = [0.0; 3];
-                body_rates = [0.0; 3];
-            }
-            MissionPhase::Launch => {
-                accel_nav = self.controlled_acceleration(thrust_accel, 0.68);
-                body_rates = [
-                    self.control_surfaces.roll_surface * 0.9 * control_authority,
-                    self.control_surfaces.pitch_surface * 0.7 * control_authority,
-                    self.control_surfaces.yaw_surface * 0.55 * control_authority,
-                ];
-            }
-            MissionPhase::Flight => {
-                accel_nav = self.controlled_acceleration(thrust_accel, 0.42);
-                body_rates = [
-                    self.control_surfaces.roll_surface * 0.9 * control_authority,
-                    self.control_surfaces.pitch_surface * 0.7 * control_authority,
-                    self.control_surfaces.yaw_surface * 0.55 * control_authority,
-                ];
-            }
-            MissionPhase::Landing => {
-                accel_nav = self.controlled_acceleration(thrust_accel, 0.72);
-                accel_nav[2] -= if self.anomalies.contains(&SimAnomaly::HardLanding) {
-                    12.0
-                } else {
-                    4.0
+                self.truth.body_rates_rps = [0.0; 3];
+                self.truth.body_accel_mps2 = [0.0; 3];
+                self.aerodynamics = AeroState {
+                    air_density_kgpm3: air_density(self.truth.position_m[2]),
+                    dynamic_pressure_pa: 0.0,
+                    mach: 0.0,
+                    alpha_rad: 0.0,
+                    beta_rad: 0.0,
+                    body_velocity_mps: [0.0; 3],
+                    aerodynamic_force_body_n: [0.0; 3],
+                    aerodynamic_moment_body_nm: [0.0; 3],
                 };
-                body_rates = [
-                    self.control_surfaces.roll_surface * 0.9 * control_authority,
-                    self.control_surfaces.pitch_surface * 0.7 * control_authority,
-                    self.control_surfaces.yaw_surface * 0.55 * control_authority,
-                ];
-                self.truth.velocity_mps[2] = self.truth.velocity_mps[2].min(-6.0);
+                return;
             }
             MissionPhase::Impact => {
                 self.truth.position_m[2] = 0.0;
@@ -814,24 +957,126 @@ impl FullStackSim {
                 self.truth.body_rates_rps = [0.0; 3];
                 return;
             }
+            MissionPhase::Launch | MissionPhase::Flight | MissionPhase::Landing => {}
         }
+
+        let body_to_nav = rotation_body_to_nav(self.truth.attitude_rad);
+        let nav_to_body = transpose3(body_to_nav);
+        let body_velocity = multiply_matrix_vec3(&nav_to_body, &self.truth.velocity_mps);
+        let aero = aerodynamic_state(
+            body_velocity,
+            self.truth.body_rates_rps,
+            self.control_surfaces,
+            self.truth.position_m[2],
+            self.config.vehicle,
+        );
+        self.aerodynamics = aero;
+
+        let thrust_axis_factor = match self.phase {
+            MissionPhase::Launch => self.config.vehicle.launch_thrust_axis_factor,
+            MissionPhase::Flight => self.config.vehicle.flight_thrust_axis_factor,
+            MissionPhase::Landing => self.config.vehicle.landing_thrust_axis_factor,
+            MissionPhase::PadInitialization | MissionPhase::Impact => 0.0,
+        };
+        let thrust_body_n = [current_thrust_n * thrust_axis_factor, 0.0, 0.0];
+        let gravity_body = multiply_matrix_vec3(&nav_to_body, &[0.0, 0.0, -STANDARD_GRAVITY_MPS2]);
+        let damping_force_body_n = [
+            -body_velocity[0] * self.config.vehicle.axial_damping_gain * mass_kg,
+            -body_velocity[1] * self.config.vehicle.lateral_damping_gain * mass_kg,
+            -body_velocity[2] * self.config.vehicle.vertical_damping_gain * mass_kg,
+        ];
+        let total_force_body_n = add_vec3(
+            add_vec3(aero.aerodynamic_force_body_n, thrust_body_n),
+            damping_force_body_n,
+        );
+        let coriolis_term = cross3(self.truth.body_rates_rps, body_velocity);
+        let body_accel = [
+            total_force_body_n[0] / mass_kg + gravity_body[0] - coriolis_term[0],
+            total_force_body_n[1] / mass_kg + gravity_body[1] - coriolis_term[1],
+            total_force_body_n[2] / mass_kg + gravity_body[2] - coriolis_term[2],
+        ];
+        let body_accel = [
+            sanitize_clamp(
+                body_accel[0],
+                -self.config.vehicle.max_body_accel_mps2,
+                self.config.vehicle.max_body_accel_mps2,
+            ),
+            sanitize_clamp(
+                body_accel[1],
+                -self.config.vehicle.max_body_accel_mps2,
+                self.config.vehicle.max_body_accel_mps2,
+            ),
+            sanitize_clamp(
+                body_accel[2],
+                -self.config.vehicle.max_body_accel_mps2,
+                self.config.vehicle.max_body_accel_mps2,
+            ),
+        ];
+
+        let inertia = vehicle_inertia_kgm2(mass_kg, self.config.vehicle);
+        let angular_accel = angular_acceleration(
+            self.truth.body_rates_rps,
+            aero.aerodynamic_moment_body_nm,
+            inertia,
+        );
+        let angular_accel = [
+            sanitize_clamp(
+                angular_accel[0],
+                -self.config.vehicle.max_angular_accel_rps2,
+                self.config.vehicle.max_angular_accel_rps2,
+            ),
+            sanitize_clamp(
+                angular_accel[1],
+                -self.config.vehicle.max_angular_accel_rps2,
+                self.config.vehicle.max_angular_accel_rps2,
+            ),
+            sanitize_clamp(
+                angular_accel[2],
+                -self.config.vehicle.max_angular_accel_rps2,
+                self.config.vehicle.max_angular_accel_rps2,
+            ),
+        ];
+        let next_body_rates = [
+            sanitize_clamp(
+                self.truth.body_rates_rps[0] + angular_accel[0] * dt_s,
+                -self.config.vehicle.max_body_rate_rps,
+                self.config.vehicle.max_body_rate_rps,
+            ),
+            sanitize_clamp(
+                self.truth.body_rates_rps[1] + angular_accel[1] * dt_s,
+                -self.config.vehicle.max_body_rate_rps,
+                self.config.vehicle.max_body_rate_rps,
+            ),
+            sanitize_clamp(
+                self.truth.body_rates_rps[2] + angular_accel[2] * dt_s,
+                -self.config.vehicle.max_body_rate_rps,
+                self.config.vehicle.max_body_rate_rps,
+            ),
+        ];
+        let next_body_velocity = [
+            sanitize_finite(body_velocity[0] + body_accel[0] * dt_s),
+            sanitize_finite(body_velocity[1] + body_accel[1] * dt_s),
+            sanitize_finite(body_velocity[2] + body_accel[2] * dt_s),
+        ];
+        let next_nav_velocity = multiply_matrix_vec3(&body_to_nav, &next_body_velocity);
+        accel_nav = multiply_matrix_vec3(&body_to_nav, &body_accel);
+        let euler_rates = body_rates_to_euler_rates(self.truth.attitude_rad, next_body_rates);
 
         for axis in 0..3 {
             self.truth.position_m[axis] +=
                 self.truth.velocity_mps[axis] * dt_s + 0.5 * accel_nav[axis] * dt_s * dt_s;
-            self.truth.velocity_mps[axis] += accel_nav[axis] * dt_s;
-            self.truth.attitude_rad[axis] = wrap_angle(self.truth.attitude_rad[axis] + body_rates[axis] * dt_s);
+            self.truth.velocity_mps[axis] = next_nav_velocity[axis];
+            self.truth.attitude_rad[axis] =
+                wrap_angle(self.truth.attitude_rad[axis] + euler_rates[axis] * dt_s);
         }
         self.truth.position_m[2] = self.truth.position_m[2].max(0.0);
         if self.truth.position_m[2] <= 0.0 && self.phase != MissionPhase::PadInitialization {
-            self.truth.velocity_mps[2] = self.truth.velocity_mps[2].min(0.0);
+            self.truth.velocity_mps = [0.0; 3];
+            self.truth.body_rates_rps = [0.0; 3];
         }
         self.geodetic = geodetic_from_local(self.truth.position_m);
-
-        let body_to_nav = rotation_body_to_nav(self.truth.attitude_rad);
-        let nav_to_body = transpose3(body_to_nav);
-        self.truth.body_accel_mps2 = multiply_matrix_vec3(&nav_to_body, &accel_nav);
-        self.truth.body_rates_rps = body_rates;
+        self.truth.body_accel_mps2 = body_accel;
+        self.truth.body_rates_rps = next_body_rates;
     }
 
     fn update_flight_computer(&mut self) {
@@ -858,7 +1103,13 @@ impl FullStackSim {
     fn refresh(&mut self, phase_changed: bool) -> Result<(), SdkError> {
         let now = self.platform.clock().now_monotonic();
         self.geodetic = geodetic_from_local(self.truth.position_m);
-        self.sensors = sensor_from_truth(now, self.truth, self.phase, &self.anomalies, self.propulsion);
+        self.sensors = sensor_from_truth(
+            now,
+            self.truth,
+            self.phase,
+            &self.anomalies,
+            self.propulsion,
+        );
         self.update_flight_computer();
         self.step_apps(phase_changed)?;
         self.collect_telemetry()?;
@@ -896,21 +1147,6 @@ impl FullStackSim {
             mode,
         });
         Ok(())
-    }
-
-    fn controlled_acceleration(&self, thrust_accel: f64, thrust_scale: f64) -> [f64; 3] {
-        let body_to_nav = rotation_body_to_nav(self.truth.attitude_rad);
-        let thrust_nav = multiply_matrix_vec3(&body_to_nav, &[0.0, 0.0, thrust_accel * thrust_scale]);
-        let aerodynamic_damping = [
-            -self.truth.velocity_mps[0] * 0.028,
-            -self.truth.velocity_mps[1] * 0.028,
-            -self.truth.velocity_mps[2] * 0.018,
-        ];
-        [
-            thrust_nav[0] + aerodynamic_damping[0],
-            thrust_nav[1] + aerodynamic_damping[1],
-            thrust_nav[2] + aerodynamic_damping[2] - STANDARD_GRAVITY_MPS2,
-        ]
     }
 }
 
@@ -1011,7 +1247,9 @@ fn queue_phase_events(vehicle: &mut VehicleManagementApp, phase: MissionPhase) {
         MissionPhase::PadInitialization => vehicle.queue_event(VehicleEvent::BootComplete),
         MissionPhase::Launch => vehicle.queue_event(VehicleEvent::EnterOperational),
         MissionPhase::Flight => vehicle.queue_event(VehicleEvent::EnterOperational),
-        MissionPhase::Landing | MissionPhase::Impact => vehicle.queue_event(VehicleEvent::RecoverToSafe),
+        MissionPhase::Landing | MissionPhase::Impact => {
+            vehicle.queue_event(VehicleEvent::RecoverToSafe)
+        }
     }
 }
 
@@ -1022,7 +1260,10 @@ fn render_downlink_frame(
 ) -> Vec<u8> {
     let mut line = format!(
         "phase={phase:?},alt_m={:.1},vs_mps={:.1},soc={:.2},signal_dbm={:.1}",
-        sensors.radar_altitude_m, sensors.vertical_speed_mps, sensors.battery_soc, sensors.signal_strength_dbm
+        sensors.radar_altitude_m,
+        sensors.vertical_speed_mps,
+        sensors.battery_soc,
+        sensors.signal_strength_dbm
     );
     if !anomalies.is_empty() {
         let _ = write!(&mut line, ",anomalies={anomalies:?}");
@@ -1030,7 +1271,10 @@ fn render_downlink_frame(
     line.into_bytes()
 }
 
-fn read_latest_line(bus: &dyn MessageBus, topic: &fsw_sdk_core::TopicName) -> Result<String, SdkError> {
+fn read_latest_line(
+    bus: &dyn MessageBus,
+    topic: &fsw_sdk_core::TopicName,
+) -> Result<String, SdkError> {
     let mut latest = String::new();
     while let Some(payload) = bus.receive(topic)? {
         latest = String::from_utf8_lossy(&payload).into_owned();
@@ -1111,20 +1355,185 @@ fn geodetic_from_local(position_m: [f64; 3]) -> GeodeticPosition {
 }
 
 fn local_from_target(target: TargetState) -> [f64; 3] {
-    let north_m =
-        (target.latitude_deg - ORIGIN_LAT_DEG).to_radians() * EARTH_RADIUS_M;
+    let north_m = (target.latitude_deg - ORIGIN_LAT_DEG).to_radians() * EARTH_RADIUS_M;
     let east_m = (target.longitude_deg - ORIGIN_LON_DEG).to_radians()
         * EARTH_RADIUS_M
         * ORIGIN_LAT_DEG.to_radians().cos();
     [east_m, north_m, target.altitude_m]
 }
 
+fn aerodynamic_state(
+    body_velocity_mps: [f64; 3],
+    body_rates_rps: [f64; 3],
+    control_surfaces: ControlSurfaceState,
+    altitude_m: f64,
+    vehicle: VehicleModelConfig,
+) -> AeroState {
+    let air_density_kgpm3 = air_density(altitude_m);
+    let airspeed_mps = norm3(body_velocity_mps).max(1.0);
+    let axial_speed = body_velocity_mps[0];
+    let alpha_rad = (-body_velocity_mps[2]).atan2(axial_speed.abs().max(1.0));
+    let beta_rad = (body_velocity_mps[1] / airspeed_mps)
+        .clamp(-0.99, 0.99)
+        .asin();
+    let dynamic_pressure_pa = 0.5 * air_density_kgpm3 * airspeed_mps * airspeed_mps;
+    let mach = airspeed_mps / speed_of_sound(altitude_m).max(1.0);
+
+    let reference_area_m2 = vehicle.reference_area_m2;
+    let reference_span_m = vehicle.reference_span_m;
+    let reference_chord_m = vehicle.reference_chord_m;
+
+    let cd = vehicle.drag_base
+        + vehicle.drag_alpha2 * alpha_rad * alpha_rad
+        + vehicle.drag_beta2 * beta_rad * beta_rad
+        + vehicle.drag_mach_gain * mach.min(3.0);
+    let cy = vehicle.side_force_beta * beta_rad
+        + vehicle.side_force_yaw_surface * control_surfaces.yaw_surface;
+    let cz = vehicle.lift_alpha * alpha_rad
+        + vehicle.lift_pitch_surface * control_surfaces.pitch_surface;
+    let cx = -cd + 0.08 * control_surfaces.pitch_surface.abs();
+
+    let aerodynamic_force_body_n = [
+        dynamic_pressure_pa * reference_area_m2 * cx,
+        dynamic_pressure_pa * reference_area_m2 * cy,
+        dynamic_pressure_pa * reference_area_m2 * cz,
+    ];
+
+    let p_hat = body_rates_rps[0] * reference_span_m / (2.0 * airspeed_mps);
+    let q_hat = body_rates_rps[1] * reference_chord_m / (2.0 * airspeed_mps);
+    let r_hat = body_rates_rps[2] * reference_span_m / (2.0 * airspeed_mps);
+    let roll_moment_coeff = vehicle.roll_moment_beta * beta_rad
+        + vehicle.roll_damping_p * p_hat
+        + vehicle.roll_surface_gain * control_surfaces.roll_surface;
+    let pitch_moment_coeff = vehicle.pitch_moment_alpha * alpha_rad
+        + vehicle.pitch_damping_q * q_hat
+        + vehicle.pitch_surface_gain * control_surfaces.pitch_surface;
+    let yaw_moment_coeff = vehicle.yaw_moment_beta * beta_rad
+        + vehicle.yaw_damping_r * r_hat
+        + vehicle.yaw_surface_gain * control_surfaces.yaw_surface;
+    let aerodynamic_moment_body_nm = [
+        dynamic_pressure_pa * reference_area_m2 * reference_span_m * roll_moment_coeff,
+        dynamic_pressure_pa * reference_area_m2 * reference_chord_m * pitch_moment_coeff,
+        dynamic_pressure_pa * reference_area_m2 * reference_span_m * yaw_moment_coeff,
+    ];
+
+    AeroState {
+        air_density_kgpm3,
+        dynamic_pressure_pa,
+        mach,
+        alpha_rad,
+        beta_rad,
+        body_velocity_mps,
+        aerodynamic_force_body_n,
+        aerodynamic_moment_body_nm,
+    }
+}
+
+fn vehicle_inertia_kgm2(mass_kg: f64, vehicle: VehicleModelConfig) -> [f64; 3] {
+    [
+        vehicle.inertia_roll_scale * mass_kg,
+        vehicle.inertia_pitch_scale * mass_kg,
+        vehicle.inertia_yaw_scale * mass_kg,
+    ]
+}
+
+fn angular_acceleration(
+    body_rates_rps: [f64; 3],
+    moment_body_nm: [f64; 3],
+    inertia_kgm2: [f64; 3],
+) -> [f64; 3] {
+    [
+        (moment_body_nm[0]
+            - (inertia_kgm2[2] - inertia_kgm2[1]) * body_rates_rps[1] * body_rates_rps[2])
+            / inertia_kgm2[0].max(1.0),
+        (moment_body_nm[1]
+            - (inertia_kgm2[0] - inertia_kgm2[2]) * body_rates_rps[2] * body_rates_rps[0])
+            / inertia_kgm2[1].max(1.0),
+        (moment_body_nm[2]
+            - (inertia_kgm2[1] - inertia_kgm2[0]) * body_rates_rps[0] * body_rates_rps[1])
+            / inertia_kgm2[2].max(1.0),
+    ]
+}
+
+fn air_density(altitude_m: f64) -> f64 {
+    1.225 * (-altitude_m.max(0.0) / 8_500.0).exp()
+}
+
+fn speed_of_sound(altitude_m: f64) -> f64 {
+    (340.0 - altitude_m.max(0.0) * 0.003).max(295.0)
+}
+
+fn body_rates_to_euler_rates(attitude: [f64; 3], body_rates: [f64; 3]) -> [f64; 3] {
+    let roll = attitude[0];
+    let pitch = attitude[1].clamp(-1.55, 1.55);
+    let pitch_cos = pitch.cos();
+    let pitch_cos_safe = if pitch_cos.abs() < 1.0e-3 {
+        if pitch_cos.is_sign_negative() {
+            -1.0e-3
+        } else {
+            1.0e-3
+        }
+    } else {
+        pitch_cos
+    };
+    let (sr, cr) = roll.sin_cos();
+    let tp = pitch.tan();
+    let p = body_rates[0];
+    let q = body_rates[1];
+    let r = body_rates[2];
+    [
+        p + sr * tp * q + cr * tp * r,
+        cr * q - sr * r,
+        (sr / pitch_cos_safe) * q + (cr / pitch_cos_safe) * r,
+    ]
+}
+
+fn cross3(lhs: [f64; 3], rhs: [f64; 3]) -> [f64; 3] {
+    [
+        lhs[1] * rhs[2] - lhs[2] * rhs[1],
+        lhs[2] * rhs[0] - lhs[0] * rhs[2],
+        lhs[0] * rhs[1] - lhs[1] * rhs[0],
+    ]
+}
+
+fn sanitize_finite(value: f64) -> f64 {
+    if value.is_finite() {
+        value
+    } else {
+        0.0
+    }
+}
+
+fn sanitize_clamp(value: f64, min: f64, max: f64) -> f64 {
+    sanitize_finite(value).clamp(min, max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        FullStackSim, MissionPhase, PhaseControl, SimAnomaly, SimConfig, SimulatorCommand,
-        PropulsionState, TargetState,
+        FullStackSim, MissionPhase, PhaseControl, PropulsionState, SimAnomaly, SimConfig,
+        SimulatorCommand, TargetState,
     };
+
+    fn sub_vec3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+        [left[0] - right[0], left[1] - right[1], left[2] - right[2]]
+    }
+
+    fn norm3(value: [f64; 3]) -> f64 {
+        (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]).sqrt()
+    }
+
+    fn local_from_target(target: TargetState) -> [f64; 3] {
+        const EARTH_RADIUS_M: f64 = 6_371_000.0;
+        const ORIGIN_LAT_DEG: f64 = 34.7420;
+        const ORIGIN_LON_DEG: f64 = -120.5724;
+
+        let north_m = (target.latitude_deg - ORIGIN_LAT_DEG).to_radians() * EARTH_RADIUS_M;
+        let east_m = (target.longitude_deg - ORIGIN_LON_DEG).to_radians()
+            * EARTH_RADIUS_M
+            * ORIGIN_LAT_DEG.to_radians().cos();
+        [east_m, north_m, target.altitude_m]
+    }
 
     #[test]
     fn auto_mode_advances_through_launch() {
@@ -1176,5 +1585,67 @@ mod tests {
         assert_eq!(snapshot.target.latitude_deg, 34.91);
         assert_eq!(snapshot.propulsion.throttle_percent, 63);
         assert_eq!(snapshot.propulsion.max_thrust_kn, 210.0);
+    }
+
+    #[test]
+    fn launch_generates_aero_and_control_activity() {
+        let mut sim = FullStackSim::new(SimConfig::default()).expect("build sim");
+        sim.apply_command(SimulatorCommand::SetPhaseControl(PhaseControl::Manual))
+            .expect("manual");
+        sim.apply_command(SimulatorCommand::SetPhase(MissionPhase::Launch))
+            .expect("launch");
+        sim.step(30).expect("step launch");
+
+        let snapshot = sim.snapshot();
+        assert!(snapshot.aerodynamics.dynamic_pressure_pa > 0.0);
+        assert!(snapshot.aerodynamics.mach > 0.0);
+        assert!(
+            snapshot.control_surfaces.roll_surface.abs()
+                + snapshot.control_surfaces.pitch_surface.abs()
+                + snapshot.control_surfaces.yaw_surface.abs()
+                > 0.0
+        );
+    }
+
+    #[test]
+    fn vehicle_model_config_changes_aero_response() {
+        let mut config = SimConfig::default();
+        config.vehicle.reference_area_m2 = 3.6;
+        config.vehicle.drag_base = 0.42;
+        config.vehicle.pitch_surface_gain = 1.8;
+        let mut sim = FullStackSim::new(config).expect("build sim");
+        sim.apply_command(SimulatorCommand::SetPhaseControl(PhaseControl::Manual))
+            .expect("manual");
+        sim.apply_command(SimulatorCommand::SetPhase(MissionPhase::Launch))
+            .expect("launch");
+        sim.step(20).expect("step");
+
+        let snapshot = sim.snapshot();
+        assert!(snapshot.aerodynamics.dynamic_pressure_pa > 0.0);
+        assert!(snapshot.aerodynamics.aerodynamic_force_body_n[0].abs() > 0.0);
+        assert!(snapshot.aerodynamics.aerodynamic_moment_body_nm[1].abs() > 0.0);
+    }
+
+    #[test]
+    fn flight_guidance_reduces_range_to_target() {
+        let mut sim = FullStackSim::new(SimConfig::default()).expect("build sim");
+        sim.apply_command(SimulatorCommand::SetPhaseControl(PhaseControl::Manual))
+            .expect("manual");
+        sim.apply_command(SimulatorCommand::SetPhase(MissionPhase::Launch))
+            .expect("launch");
+        sim.step(80).expect("climb");
+
+        let target_local = local_from_target(sim.snapshot().target);
+        let initial_range = norm3(sub_vec3(target_local, sim.snapshot().truth.position_m));
+
+        sim.apply_command(SimulatorCommand::SetPhase(MissionPhase::Flight))
+            .expect("flight");
+        sim.step(120).expect("track");
+
+        let final_range = norm3(sub_vec3(target_local, sim.snapshot().truth.position_m));
+        assert!(
+            final_range < initial_range,
+            "{final_range} !< {initial_range}"
+        );
     }
 }

@@ -116,6 +116,28 @@
           </div>
         </section>
 
+        <section class="card launch-vector-card" data-card-id="launch-vector">
+          <div class="card-head">
+            <h2>Launch Vector</h2>
+            <span class="muted">Set the initial azimuth, elevation, and range</span>
+          </div>
+          <form id="launch-vector-form" class="launch-vector-form">
+            <label>
+              Azimuth (deg)
+              <input id="launch-az-input" name="azimuth_deg" type="number" min="0" max="360" step="0.1">
+            </label>
+            <label>
+              Elevation (deg)
+              <input id="launch-el-input" name="elevation_deg" type="number" min="-90" max="90" step="0.1">
+            </label>
+            <label>
+              Range (m)
+              <input id="launch-range-input" name="range_m" type="number" min="1" step="10">
+            </label>
+            <button type="submit" class="accent-button">Apply Launch Vector</button>
+          </form>
+        </section>
+
         <section class="card telemetry-card" data-card-id="telemetry">
           <div class="card-head">
             <h2>Navigation</h2>
@@ -137,6 +159,22 @@
             <div class="metric-block">
               <span class="label">Downrange</span>
               <strong id="downrange-value">0 m</strong>
+            </div>
+            <div class="metric-block emphasis-block">
+              <span class="label">Target Range</span>
+              <strong id="target-range-value">0 m</strong>
+            </div>
+            <div class="metric-block emphasis-block">
+              <span class="label">Cross-Track Error</span>
+              <strong id="cross-track-value">0 m</strong>
+            </div>
+            <div class="metric-block">
+              <span class="label">Vertical Error</span>
+              <strong id="vertical-error-value">0 m</strong>
+            </div>
+            <div class="metric-block">
+              <span class="label">Closing Speed</span>
+              <strong id="closing-speed-value">0 m/s</strong>
             </div>
           </div>
         </section>

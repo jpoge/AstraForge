@@ -9,9 +9,9 @@ mod ekf;
 mod launcher;
 
 pub use component::{
-    new_shared_gnc_component, ControlGains, GncCommand, GncComponent, GncComponentProxy,
-    GncConfig, GuidanceMode, GuidanceReference, SharedGncComponent, GNC_COMMAND_TOPIC,
-    GNC_COMPONENT_ID, GNC_SOLUTION_TOPIC,
+    new_shared_gnc_component, ControlGains, GncCommand, GncComponent, GncComponentProxy, GncConfig,
+    GuidanceMode, GuidanceReference, SharedGncComponent, GNC_COMMAND_TOPIC, GNC_COMPONENT_ID,
+    GNC_SOLUTION_TOPIC,
 };
 pub use config::MissionConfig;
 pub use ekf::{

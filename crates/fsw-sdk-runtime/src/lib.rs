@@ -493,8 +493,10 @@ mod tests {
     fn watchdog_raises_fault_when_heartbeat_stale() {
         let policy = ClassMapPolicy::conservative();
         let mut runtime = Runtime::new(policy);
-        runtime
-            .set_scheduler_config(SchedulerConfig { period_ms: 50, heartbeat_timeout_ms: 100 });
+        runtime.set_scheduler_config(SchedulerConfig {
+            period_ms: 50,
+            heartbeat_timeout_ms: 100,
+        });
         runtime
             .register(Box::new(TestComponent::new("demo.component")))
             .expect("register");
@@ -515,7 +517,10 @@ mod tests {
     struct RestartPolicy;
 
     impl fsw_sdk_fdir::FdirPolicy for RestartPolicy {
-        fn select_response(&self, _event: &fsw_sdk_core::FaultEvent) -> fsw_sdk_core::FaultResponse {
+        fn select_response(
+            &self,
+            _event: &fsw_sdk_core::FaultEvent,
+        ) -> fsw_sdk_core::FaultResponse {
             fsw_sdk_core::FaultResponse::Restart
         }
     }

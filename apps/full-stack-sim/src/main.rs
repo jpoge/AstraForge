@@ -4,20 +4,24 @@
 use std::io::{self, Write};
 
 use full_stack_sim::{
-    transport::HttpSimServer,
-    FullStackSim, MissionPhase, PhaseControl, SimAnomaly, SimConfig, SimulatorCommand,
+    config::load_sim_config as load_sim_config_file, transport::HttpSimServer, FullStackSim,
+    MissionPhase, PhaseControl, SimAnomaly, SimConfig, SimulatorCommand,
 };
 use vehicle_management_template::VehicleEvent;
 
+const DEFAULT_SIM_CONFIG_PATH: &str = "apps/full-stack-sim/config/scenarios/default.toml";
+
 fn main() -> Result<(), fsw_sdk_core::SdkError> {
     let args: Vec<String> = std::env::args().collect();
+    let mut sim_config = load_sim_config(&args)?;
+    apply_launch_overrides(&mut sim_config, &args);
     if let Some(addr) = parse_http_addr(&args) {
-        let server = HttpSimServer::new(FullStackSim::new(SimConfig::default())?);
+        let server = HttpSimServer::new(FullStackSim::new(sim_config)?);
         println!("AstraForge full-stack sim HTTP server listening on http://{addr}");
         return server.run_blocking(&addr);
     }
 
-    let mut sim = FullStackSim::new(SimConfig::default())?;
+    let mut sim = FullStackSim::new(sim_config)?;
 
     println!("AstraForge full-stack sim");
     println!("type `help` for commands");
@@ -59,20 +63,57 @@ fn main() -> Result<(), fsw_sdk_core::SdkError> {
     Ok(())
 }
 
-fn parse_http_addr(args: &[String]) -> Option<String> {
-    match args.get(1).map(String::as_str) {
-        Some("serve") => Some(
-            args.get(2)
-                .cloned()
-                .unwrap_or_else(|| "127.0.0.1:8080".to_string()),
-        ),
-        Some("--http") => Some(
-            args.get(2)
-                .cloned()
-                .unwrap_or_else(|| "127.0.0.1:8080".to_string()),
-        ),
-        _ => None,
+fn load_sim_config(args: &[String]) -> Result<SimConfig, fsw_sdk_core::SdkError> {
+    match parse_config_path(args) {
+        Some(path) => load_sim_config_file(path),
+        None => match std::path::Path::new(DEFAULT_SIM_CONFIG_PATH).exists() {
+            true => load_sim_config_file(DEFAULT_SIM_CONFIG_PATH),
+            false => Ok(SimConfig::default()),
+        },
     }
+}
+
+fn parse_http_addr(args: &[String]) -> Option<String> {
+    for (index, arg) in args.iter().enumerate().skip(1) {
+        match arg.as_str() {
+            "serve" | "--http" => {
+                return Some(
+                    args.get(index + 1)
+                        .filter(|value| !value.starts_with("--"))
+                        .cloned()
+                        .unwrap_or_else(|| "127.0.0.1:8080".to_string()),
+                );
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn parse_config_path(args: &[String]) -> Option<&str> {
+    args.windows(2)
+        .find(|window| window[0] == "--config")
+        .map(|window| window[1].as_str())
+}
+
+fn apply_launch_overrides(config: &mut SimConfig, args: &[String]) {
+    if let Some(az) = parse_launch_arg(args, "--launch-az") {
+        config.launch_azimuth_deg = az;
+    }
+    if let Some(el) = parse_launch_arg(args, "--launch-el") {
+        config.launch_elevation_deg = el;
+    }
+    if let Some(range) = parse_launch_arg(args, "--launch-range") {
+        if range > 0.0 {
+            config.launch_range_m = range;
+        }
+    }
+}
+
+fn parse_launch_arg(args: &[String], flag: &str) -> Option<f64> {
+    args.windows(2)
+        .find(|window| window[0] == flag)
+        .and_then(|window| window[1].parse::<f64>().ok())
 }
 
 fn handle_command(sim: &mut FullStackSim, line: &str) -> Result<(), fsw_sdk_core::SdkError> {
@@ -161,6 +202,7 @@ fn parse_event(value: Option<&str>) -> Result<VehicleEvent, fsw_sdk_core::SdkErr
 }
 
 fn print_help() {
+    println!("--config <path>    load sim/vehicle config from file");
     println!("status");
     println!("step [n]");
     println!("reset");

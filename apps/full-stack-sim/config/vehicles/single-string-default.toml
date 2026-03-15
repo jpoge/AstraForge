@@ -1,0 +1,45 @@
+# Copyright (c) 2026 AstraForge Team/Mad Mountain, LLC
+# SPDX-License-Identifier: Apache-2.0
+
+reference_area_m2 = 1.85
+reference_span_m = 2.8
+reference_chord_m = 0.92
+
+inertia_roll_scale = 0.22
+inertia_pitch_scale = 0.18
+inertia_yaw_scale = 0.12
+
+drag_base = 0.18
+drag_alpha2 = 0.85
+drag_beta2 = 0.35
+drag_mach_gain = 0.06
+
+side_force_beta = -0.75
+side_force_yaw_surface = 0.42
+
+lift_alpha = -1.8
+lift_pitch_surface = 0.65
+
+roll_moment_beta = -0.22
+roll_damping_p = -0.48
+roll_surface_gain = 0.92
+
+pitch_moment_alpha = -1.15
+pitch_damping_q = -0.62
+pitch_surface_gain = 1.08
+
+yaw_moment_beta = 0.24
+yaw_damping_r = -0.36
+yaw_surface_gain = 0.88
+
+launch_thrust_axis_factor = 1.0
+flight_thrust_axis_factor = 0.62
+landing_thrust_axis_factor = 0.78
+
+axial_damping_gain = 0.028
+lateral_damping_gain = 0.028
+vertical_damping_gain = 0.018
+
+max_body_rate_rps = 2.5
+max_body_accel_mps2 = 60.0
+max_angular_accel_rps2 = 8.0

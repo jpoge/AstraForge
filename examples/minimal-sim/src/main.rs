@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use fsw_sdk_core::{
-    ComponentHealth, ComponentId, DependencyLevel, DurationMs, FaultClass, FaultEvent, FswComponent,
-    MissionTime, SdkError, TimeSource,
+    ComponentHealth, ComponentId, DependencyLevel, DurationMs, FaultClass, FaultEvent,
+    FswComponent, MissionTime, SdkError, TimeSource,
 };
 use fsw_sdk_fdir::ClassMapPolicy;
 use fsw_sdk_runtime::{Runtime, SchedulerConfig};
