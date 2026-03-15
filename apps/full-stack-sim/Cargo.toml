@@ -1,0 +1,24 @@
+[package]
+name = "full-stack-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "full_stack_sim"
+path = "src/lib.rs"
+
+[dependencies]
+communications-template = { path = "../communications-template" }
+vehicle-management-template = { path = "../vehicle-management-template" }
+power-management-template = { path = "../power-management-template" }
+thermal-management-template = { path = "../thermal-management-template" }
+payload-interface-template = { path = "../payload-interface-template" }
+simple-gnc = { path = "../simple-gnc" }
+fsw-sdk-app = { path = "../../crates/fsw-sdk-app" }
+fsw-sdk-core = { path = "../../crates/fsw-sdk-core" }
+fsw-sdk-fdir = { path = "../../crates/fsw-sdk-fdir" }
+fsw-sdk-hal = { path = "../../crates/fsw-sdk-hal" }
+fsw-sdk-runtime = { path = "../../crates/fsw-sdk-runtime" }

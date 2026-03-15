@@ -1,5 +1,5 @@
 [package]
-name = "simple-gnc"
+name = "vehicle-management-template"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,7 +7,7 @@ authors.workspace = true
 publish = false
 
 [lib]
-name = "simple_gnc"
+name = "vehicle_management_template"
 path = "src/lib.rs"
 
 [dependencies]
@@ -16,4 +16,5 @@ fsw-sdk-core = { path = "../../crates/fsw-sdk-core" }
 fsw-sdk-fdir = { path = "../../crates/fsw-sdk-fdir" }
 fsw-sdk-hal = { path = "../../crates/fsw-sdk-hal" }
 fsw-sdk-runtime = { path = "../../crates/fsw-sdk-runtime" }
-fsw-sdk-time = { path = "../../crates/fsw-sdk-time" }
+fsw-sdk-template-launcher = { path = "../../crates/fsw-sdk-template-launcher" }
+fsw-sdk-template-support = { path = "../../crates/fsw-sdk-template-support" }

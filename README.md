@@ -11,6 +11,7 @@ It is structured as a foundation rather than a finished avionics stack. The crat
 - Strongly typed core contracts for component IDs, lifecycle, faults, time, and messaging.
 - A runtime that can register components, validate dependency graphs, start and stop them, and apply FDIR responses.
 - Host-side time and OSAL implementations for simulation and development.
+- A HAL-style platform boundary for swapping host and target backends.
 - A narrow mission-app API for application code that should not depend directly on runtime internals.
 - A minimal example showing how a component is registered and supervised.
 
@@ -19,15 +20,24 @@ It is structured as a foundation rather than a finished avionics stack. The crat
 - `crates/fsw-sdk-core`: shared contracts and data types
 - `crates/fsw-sdk-time`: `StaticClock` and `SystemClock`
 - `crates/fsw-sdk-osal`: OS abstraction traits and host queue/task backend
+- `crates/fsw-sdk-hal`: platform boundary for host-sim and future target backends
 - `crates/fsw-sdk-fdir`: policy traits and basic class-to-response mapping
 - `crates/fsw-sdk-runtime`: component registry, watchdog/supervisor, manifest parsing, in-memory bus
 - `crates/fsw-sdk-app`: mission-facing app trait and context
+- `apps/communications-template`: generic communications skeleton
+- `apps/vehicle-management-template`: generic vehicle state-machine skeleton
+- `apps/power-management-template`: generic power-management skeleton
+- `apps/thermal-management-template`: generic thermal-management skeleton
+- `apps/payload-interface-template`: generic payload integration skeleton
+- `apps/simple-gnc`: config-driven 6-DoF GNC app assembled on top of AstraForge
+- `apps/full-stack-sim`: standalone full-stack mission simulation with phase control and anomaly injection
 - `examples/minimal-sim`: host-side composition example
 
 ## How To Think About The Crates
 
 - Put mission-independent contracts in `fsw-sdk-core`.
 - Put target or environment abstractions in `fsw-sdk-time` and `fsw-sdk-osal`.
+- Put platform/backend selection and target adaptation in `fsw-sdk-hal`.
 - Put system-level policy decisions in `fsw-sdk-fdir`.
 - Put orchestration, registration, and supervision in `fsw-sdk-runtime`.
 - Put mission logic on top of these crates instead of mixing it into the runtime.
@@ -38,6 +48,9 @@ It is structured as a foundation rather than a finished avionics stack. The crat
 2. Dependency graph validation across component-declared and manifest-declared required edges.
 3. Supervisor/watchdog behavior through `SchedulerConfig`, `mark_heartbeat`, `supervisor_step`, and `run_supervisor_cycles`.
 4. Fault response handling with distinct `Retry`, `Restart`, `Isolate`, and `EnterSafeMode` behavior.
+5. Config-driven application launch path in `apps/simple-gnc` using the `host-sim` HAL backend.
+6. A standalone full-stack simulator that exercises GNC, communications, vehicle management, power, thermal, and payload apps across pad, launch, flight, landing, and impact phases.
+7. A browser-friendly transport for the full-stack simulator with normalized JSON snapshots, server-sent event push updates, and a versioned command/schema document for UI generation.
 
 ## Building Applications On Top Of The SDK
 
@@ -141,6 +154,30 @@ Run the example:
 ```powershell
 cargo run -p minimal-sim
 ```
+
+Run the standalone full-stack simulator:
+
+```powershell
+cargo run -p full-stack-sim
+```
+
+Run the standalone full-stack simulator with its HTTP transport:
+
+```powershell
+cargo run -p full-stack-sim -- serve 127.0.0.1:8080
+```
+
+The simulator HTTP surface is designed for frontend integration:
+
+- `GET /snapshot`: fetch current normalized sim state
+- `POST /command`: apply a simulator command and get the updated state
+- `GET /events`: subscribe to pushed snapshot updates over server-sent events
+- `GET /schema`: fetch the versioned frontend contract, enum values, and UI-oriented command catalog
+
+The snapshot and schema payloads both include:
+
+- `api_version`
+- `schema_version`
 
 ## Compiling For A Specific Target
 

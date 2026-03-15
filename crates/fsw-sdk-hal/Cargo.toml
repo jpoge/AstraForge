@@ -1,0 +1,15 @@
+[package]
+name = "fsw-sdk-hal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "fsw_sdk_hal"
+path = "src/lib.rs"
+
+[dependencies]
+fsw-sdk-core = { path = "../fsw-sdk-core" }
+fsw-sdk-runtime = { path = "../fsw-sdk-runtime" }
+fsw-sdk-time = { path = "../fsw-sdk-time" }

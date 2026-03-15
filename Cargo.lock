@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "communications-template"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "fsw-sdk-template-launcher",
+ "fsw-sdk-template-support",
+]
+
+[[package]]
 name = "fsw-sdk-app"
 version = "0.1.0"
 dependencies = [
@@ -18,6 +31,15 @@ name = "fsw-sdk-fdir"
 version = "0.1.0"
 dependencies = [
  "fsw-sdk-core",
+]
+
+[[package]]
+name = "fsw-sdk-hal"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-core",
+ "fsw-sdk-runtime",
+ "fsw-sdk-time",
 ]
 
 [[package]]
@@ -37,10 +59,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsw-sdk-template-launcher"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+]
+
+[[package]]
+name = "fsw-sdk-template-support"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+]
+
+[[package]]
 name = "fsw-sdk-time"
 version = "0.1.0"
 dependencies = [
  "fsw-sdk-core",
+]
+
+[[package]]
+name = "full-stack-sim"
+version = "0.1.0"
+dependencies = [
+ "communications-template",
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "payload-interface-template",
+ "power-management-template",
+ "simple-gnc",
+ "thermal-management-template",
+ "vehicle-management-template",
 ]
 
 [[package]]
@@ -54,12 +112,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "payload-interface-template"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "fsw-sdk-template-launcher",
+ "fsw-sdk-template-support",
+]
+
+[[package]]
+name = "power-management-template"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "fsw-sdk-template-launcher",
+ "fsw-sdk-template-support",
+]
+
+[[package]]
 name = "simple-gnc"
 version = "0.1.0"
 dependencies = [
  "fsw-sdk-app",
  "fsw-sdk-core",
  "fsw-sdk-fdir",
+ "fsw-sdk-hal",
  "fsw-sdk-runtime",
  "fsw-sdk-time",
+]
+
+[[package]]
+name = "thermal-management-template"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "fsw-sdk-template-launcher",
+ "fsw-sdk-template-support",
+]
+
+[[package]]
+name = "vehicle-management-template"
+version = "0.1.0"
+dependencies = [
+ "fsw-sdk-app",
+ "fsw-sdk-core",
+ "fsw-sdk-fdir",
+ "fsw-sdk-hal",
+ "fsw-sdk-runtime",
+ "fsw-sdk-template-launcher",
+ "fsw-sdk-template-support",
 ]

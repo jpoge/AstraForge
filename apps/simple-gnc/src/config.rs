@@ -11,6 +11,7 @@ use crate::ekf::EkfTuning;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MissionConfig {
+    pub platform: String,
     pub ekf_rate_hz: u32,
     pub process_accel_noise: f64,
     pub process_gyro_noise: f64,
@@ -23,6 +24,7 @@ pub struct MissionConfig {
     pub imu_period_ms: u64,
     pub gps_period_ms: u64,
     pub magnetometer_period_ms: u64,
+    pub heartbeat_timeout_ms: u64,
 }
 
 impl MissionConfig {
@@ -45,6 +47,7 @@ impl MissionConfig {
             let value = value.trim().trim_matches('"');
 
             match key {
+                "platform" => config.platform = value.to_string(),
                 "ekf_rate_hz" => config.ekf_rate_hz = parse_u32(value)?,
                 "process_accel_noise" => config.process_accel_noise = parse_f64(value)?,
                 "process_gyro_noise" => config.process_gyro_noise = parse_f64(value)?,
@@ -59,6 +62,7 @@ impl MissionConfig {
                 "imu_period_ms" => config.imu_period_ms = parse_u64(value)?,
                 "gps_period_ms" => config.gps_period_ms = parse_u64(value)?,
                 "magnetometer_period_ms" => config.magnetometer_period_ms = parse_u64(value)?,
+                "heartbeat_timeout_ms" => config.heartbeat_timeout_ms = parse_u64(value)?,
                 _ => return Err(SdkError::InvalidConfig),
             }
         }
@@ -67,6 +71,7 @@ impl MissionConfig {
             || config.imu_period_ms == 0
             || config.gps_period_ms == 0
             || config.magnetometer_period_ms == 0
+            || config.heartbeat_timeout_ms == 0
         {
             return Err(SdkError::InvalidConfig);
         }
@@ -99,6 +104,7 @@ impl MissionConfig {
 impl Default for MissionConfig {
     fn default() -> Self {
         Self {
+            platform: "host-sim".to_string(),
             ekf_rate_hz: 25,
             process_accel_noise: 0.35,
             process_gyro_noise: 0.04,
@@ -111,6 +117,7 @@ impl Default for MissionConfig {
             imu_period_ms: 20,
             gps_period_ms: 200,
             magnetometer_period_ms: 100,
+            heartbeat_timeout_ms: 250,
         }
     }
 }
@@ -134,10 +141,11 @@ mod tests {
     #[test]
     fn parses_file_style_config() {
         let config = MissionConfig::parse(
-            "ekf_rate_hz = 40\nprocess_accel_noise = 0.5\nimu_period_ms = 10\ngps_period_ms = 100\nmagnetometer_period_ms = 50\nsim_duration_s = 3.0\n",
+            "platform = host-sim\nekf_rate_hz = 40\nprocess_accel_noise = 0.5\nimu_period_ms = 10\ngps_period_ms = 100\nmagnetometer_period_ms = 50\nheartbeat_timeout_ms = 300\nsim_duration_s = 3.0\n",
         )
         .expect("config");
 
+        assert_eq!(config.platform, "host-sim");
         assert_eq!(config.ekf_rate_hz, 40);
         assert_eq!(config.process_accel_noise, 0.5);
         assert_eq!(config.imu_period_ms, 10);

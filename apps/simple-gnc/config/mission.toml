@@ -1,3 +1,4 @@
+platform = host-sim
 ekf_rate_hz = 25
 process_accel_noise = 0.35
 process_gyro_noise = 0.04
@@ -10,3 +11,4 @@ sim_duration_s = 6.0
 imu_period_ms = 20
 gps_period_ms = 200
 magnetometer_period_ms = 100
+heartbeat_timeout_ms = 250

@@ -23,10 +23,12 @@ The app loads its EKF and simulation settings from [`config/mission.toml`](C:\Us
 
 The file controls:
 
+- platform/backend selection
 - EKF propagation rate
 - process and measurement noise settings
 - simulation duration
 - IMU, GPS, and magnetometer update periods
+- watchdog heartbeat timeout
 
 ## Run It
 
@@ -47,5 +49,6 @@ cargo run -p simple-gnc -- --config apps/simple-gnc/config/mission.toml --rate-h
 - `config/mission.toml`: mission and EKF configuration
 - `src/ekf.rs`: EKF state, propagation, and measurement updates
 - `src/component.rs`: SDK integration through `MissionApp` and `FswComponent`
-- `src/main.rs`: host-side simulation harness using the SDK runtime
+- `src/launcher.rs`: config-driven mission assembly and platform launch path
+- `src/main.rs`: CLI entry point that loads mission config and invokes the launcher
 - `module.yaml`: manifest used for runtime registration

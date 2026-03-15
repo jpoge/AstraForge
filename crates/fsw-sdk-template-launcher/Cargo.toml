@@ -1,0 +1,17 @@
+[package]
+name = "fsw-sdk-template-launcher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "fsw_sdk_template_launcher"
+path = "src/lib.rs"
+
+[dependencies]
+fsw-sdk-app = { path = "../fsw-sdk-app" }
+fsw-sdk-core = { path = "../fsw-sdk-core" }
+fsw-sdk-fdir = { path = "../fsw-sdk-fdir" }
+fsw-sdk-hal = { path = "../fsw-sdk-hal" }
+fsw-sdk-runtime = { path = "../fsw-sdk-runtime" }

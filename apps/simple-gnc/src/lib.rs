@@ -6,6 +6,7 @@
 mod component;
 mod config;
 mod ekf;
+mod launcher;
 
 pub use component::{
     new_shared_gnc_component, GncComponent, GncComponentProxy, GncConfig, SharedGncComponent,
@@ -16,3 +17,4 @@ pub use ekf::{
     EkfTuning, ExtendedKalmanFilter, GpsReading, ImuReading, MagnetometerReading,
     NavigationSolution,
 };
+pub use launcher::{run_mission, LaunchReport};

@@ -3,10 +3,19 @@ members = [
   "crates/fsw-sdk-core",
   "crates/fsw-sdk-time",
   "crates/fsw-sdk-osal",
+  "crates/fsw-sdk-hal",
   "crates/fsw-sdk-fdir",
   "crates/fsw-sdk-runtime",
   "crates/fsw-sdk-app",
+  "crates/fsw-sdk-template-support",
+  "crates/fsw-sdk-template-launcher",
+  "apps/communications-template",
+  "apps/vehicle-management-template",
+  "apps/power-management-template",
+  "apps/thermal-management-template",
+  "apps/payload-interface-template",
   "apps/simple-gnc",
+  "apps/full-stack-sim",
   "examples/minimal-sim"
 ]
 resolver = "2"
