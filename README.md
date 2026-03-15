@@ -51,6 +51,7 @@ It is structured as a foundation rather than a finished avionics stack. The crat
 5. Config-driven application launch path in `apps/simple-gnc` using the `host-sim` HAL backend.
 6. A standalone full-stack simulator that exercises GNC, communications, vehicle management, power, thermal, and payload apps across pad, launch, flight, landing, and impact phases.
 7. A browser-friendly transport for the full-stack simulator with normalized JSON snapshots, server-sent event push updates, and a versioned command/schema document for UI generation.
+8. A graphical mission console with live trend plots, a clickable map/targeting view, and adjustable propulsion and fuel parameters.
 
 ## Building Applications On Top Of The SDK
 
@@ -167,12 +168,25 @@ Run the standalone full-stack simulator with its HTTP transport:
 cargo run -p full-stack-sim -- serve 127.0.0.1:8080
 ```
 
+Then open the graphical console in a browser:
+
+```text
+http://127.0.0.1:8080/
+```
+
 The simulator HTTP surface is designed for frontend integration:
 
+- `GET /`: load the graphical mission console
 - `GET /snapshot`: fetch current normalized sim state
 - `POST /command`: apply a simulator command and get the updated state
 - `GET /events`: subscribe to pushed snapshot updates over server-sent events
 - `GET /schema`: fetch the versioned frontend contract, enum values, and UI-oriented command catalog
+
+The full-stack simulator now exposes map and propulsion state for the UI:
+
+- vehicle geodetic position
+- selectable target geodetic position
+- throttle, thrust, propellant mass, dry mass, ISP, and fuel-consumption scaling
 
 The snapshot and schema payloads both include:
 

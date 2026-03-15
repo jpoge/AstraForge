@@ -16,11 +16,76 @@ use crate::ekf::{
 
 pub const GNC_COMPONENT_ID: &str = "gnc.app";
 pub const GNC_SOLUTION_TOPIC: TopicName = TopicName("gnc.solution");
+pub const GNC_COMMAND_TOPIC: TopicName = TopicName("gnc.command");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuidanceMode {
+    Hold,
+    Ascent,
+    Cruise,
+    Landing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GuidanceReference {
+    pub target_position_m: [f64; 3],
+    pub target_velocity_mps: [f64; 3],
+    pub mode: GuidanceMode,
+}
+
+impl Default for GuidanceReference {
+    fn default() -> Self {
+        Self {
+            target_position_m: [0.0; 3],
+            target_velocity_mps: [0.0; 3],
+            mode: GuidanceMode::Hold,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ControlGains {
+    pub position_gain: f64,
+    pub velocity_gain: f64,
+    pub yaw_gain: f64,
+    pub roll_gain: f64,
+    pub pitch_gain: f64,
+    pub body_rate_damping: f64,
+    pub max_lateral_velocity_mps: f64,
+    pub max_vertical_velocity_mps: f64,
+    pub max_surface_deflection: f64,
+}
+
+impl Default for ControlGains {
+    fn default() -> Self {
+        Self {
+            position_gain: 0.012,
+            velocity_gain: 0.11,
+            yaw_gain: 0.85,
+            roll_gain: 1.35,
+            pitch_gain: 1.1,
+            body_rate_damping: 0.35,
+            max_lateral_velocity_mps: 45.0,
+            max_vertical_velocity_mps: 25.0,
+            max_surface_deflection: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GncCommand {
+    pub timestamp: MissionTime,
+    pub target_position_m: [f64; 3],
+    pub target_velocity_mps: [f64; 3],
+    pub desired_attitude_rad: [f64; 3],
+    pub control_surfaces: [f64; 3],
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GncConfig {
     pub ekf_rate_hz: u32,
     pub tuning: EkfTuning,
+    pub control: ControlGains,
 }
 
 impl GncConfig {
@@ -36,6 +101,7 @@ impl Default for GncConfig {
         Self {
             ekf_rate_hz: 20,
             tuning: EkfTuning::default(),
+            control: ControlGains::default(),
         }
     }
 }
@@ -46,6 +112,8 @@ pub struct GncComponent {
     latest_imu: Option<ImuReading>,
     latest_gps: Option<GpsReading>,
     latest_magnetometer: Option<MagnetometerReading>,
+    guidance_reference: GuidanceReference,
+    latest_command: GncCommand,
     last_predict_time: Option<MissionTime>,
     lifecycle_state: ComponentLifecycleState,
     health: ComponentHealth,
@@ -60,6 +128,14 @@ impl GncComponent {
             latest_imu: None,
             latest_gps: None,
             latest_magnetometer: None,
+            guidance_reference: GuidanceReference::default(),
+            latest_command: GncCommand {
+                timestamp: MissionTime(0),
+                target_position_m: [0.0; 3],
+                target_velocity_mps: [0.0; 3],
+                desired_attitude_rad: [0.0; 3],
+                control_surfaces: [0.0; 3],
+            },
             last_predict_time: None,
             lifecycle_state: ComponentLifecycleState::Created,
             health: ComponentHealth::Degraded,
@@ -79,9 +155,18 @@ impl GncComponent {
         self.latest_magnetometer = Some(reading);
     }
 
+    pub fn set_guidance_reference(&mut self, reference: GuidanceReference) {
+        self.guidance_reference = reference;
+    }
+
     #[must_use]
     pub fn solution(&self) -> NavigationSolution {
         self.ekf.solution()
+    }
+
+    #[must_use]
+    pub fn control_command(&self) -> GncCommand {
+        self.latest_command
     }
 
     fn reset_internal(&mut self) {
@@ -89,6 +174,14 @@ impl GncComponent {
         self.latest_imu = None;
         self.latest_gps = None;
         self.latest_magnetometer = None;
+        self.guidance_reference = GuidanceReference::default();
+        self.latest_command = GncCommand {
+            timestamp: MissionTime(0),
+            target_position_m: [0.0; 3],
+            target_velocity_mps: [0.0; 3],
+            desired_attitude_rad: [0.0; 3],
+            control_surfaces: [0.0; 3],
+        };
         self.last_predict_time = None;
         self.health = ComponentHealth::Degraded;
     }
@@ -109,6 +202,26 @@ impl GncComponent {
             solution.gyro_bias_rps[0],
             solution.gyro_bias_rps[1],
             solution.gyro_bias_rps[2]
+        )
+        .into_bytes()
+    }
+
+    fn encode_command(command: &GncCommand) -> Vec<u8> {
+        format!(
+            "t_ms={},target_m=({:.3},{:.3},{:.3}),target_v_mps=({:.3},{:.3},{:.3}),desired_att_rad=({:.4},{:.4},{:.4}),surfaces=({:.4},{:.4},{:.4})",
+            command.timestamp.0,
+            command.target_position_m[0],
+            command.target_position_m[1],
+            command.target_position_m[2],
+            command.target_velocity_mps[0],
+            command.target_velocity_mps[1],
+            command.target_velocity_mps[2],
+            command.desired_attitude_rad[0],
+            command.desired_attitude_rad[1],
+            command.desired_attitude_rad[2],
+            command.control_surfaces[0],
+            command.control_surfaces[1],
+            command.control_surfaces[2]
         )
         .into_bytes()
     }
@@ -139,6 +252,101 @@ impl GncComponent {
         }
         self.health = ComponentHealth::Nominal;
     }
+
+    fn update_guidance_and_control(&mut self) {
+        let solution = self.ekf.solution();
+        let imu = self.latest_imu.unwrap_or(ImuReading {
+            timestamp: solution.timestamp,
+            accel_body_mps2: [0.0; 3],
+            gyro_body_rps: [0.0; 3],
+        });
+        let position_error = sub_vec3(
+            self.guidance_reference.target_position_m,
+            solution.position_m,
+        );
+        let feed_forward_velocity = self.guidance_reference.target_velocity_mps;
+        let commanded_velocity = [
+            clamp(
+                feed_forward_velocity[0]
+                    + position_error[0] * self.config.control.position_gain,
+                -self.config.control.max_lateral_velocity_mps,
+                self.config.control.max_lateral_velocity_mps,
+            ),
+            clamp(
+                feed_forward_velocity[1]
+                    + position_error[1] * self.config.control.position_gain,
+                -self.config.control.max_lateral_velocity_mps,
+                self.config.control.max_lateral_velocity_mps,
+            ),
+            clamp(
+                feed_forward_velocity[2]
+                    + position_error[2] * self.config.control.position_gain,
+                -self.config.control.max_vertical_velocity_mps,
+                self.config.control.max_vertical_velocity_mps,
+            ),
+        ];
+        let velocity_error = sub_vec3(commanded_velocity, solution.velocity_mps);
+        let commanded_accel = [
+            velocity_error[0] * self.config.control.velocity_gain,
+            velocity_error[1] * self.config.control.velocity_gain,
+            velocity_error[2] * self.config.control.velocity_gain,
+        ];
+        let desired_yaw = if position_error[0].abs() + position_error[1].abs() > 1.0 {
+            position_error[1].atan2(position_error[0])
+        } else {
+            solution.attitude_rad[2]
+        };
+        let desired_roll = clamp(
+            -commanded_accel[1] * self.config.control.roll_gain / 4.0,
+            -0.55,
+            0.55,
+        );
+        let desired_pitch = match self.guidance_reference.mode {
+            GuidanceMode::Landing => clamp(
+                -commanded_accel[2] * self.config.control.pitch_gain / 3.5,
+                -0.35,
+                0.4,
+            ),
+            GuidanceMode::Ascent | GuidanceMode::Cruise => clamp(
+                commanded_accel[2] * self.config.control.pitch_gain / 3.5,
+                -0.4,
+                0.55,
+            ),
+            GuidanceMode::Hold => 0.0,
+        };
+        let attitude_error = [
+            wrap_angle(desired_roll - solution.attitude_rad[0]),
+            wrap_angle(desired_pitch - solution.attitude_rad[1]),
+            wrap_angle(desired_yaw - solution.attitude_rad[2]),
+        ];
+        let control_surfaces = [
+            clamp(
+                attitude_error[0] * self.config.control.roll_gain
+                    - imu.gyro_body_rps[0] * self.config.control.body_rate_damping,
+                -self.config.control.max_surface_deflection,
+                self.config.control.max_surface_deflection,
+            ),
+            clamp(
+                attitude_error[1] * self.config.control.pitch_gain
+                    - imu.gyro_body_rps[1] * self.config.control.body_rate_damping,
+                -self.config.control.max_surface_deflection,
+                self.config.control.max_surface_deflection,
+            ),
+            clamp(
+                attitude_error[2] * self.config.control.yaw_gain
+                    - imu.gyro_body_rps[2] * self.config.control.body_rate_damping,
+                -self.config.control.max_surface_deflection,
+                self.config.control.max_surface_deflection,
+            ),
+        ];
+        self.latest_command = GncCommand {
+            timestamp: solution.timestamp,
+            target_position_m: self.guidance_reference.target_position_m,
+            target_velocity_mps: commanded_velocity,
+            desired_attitude_rad: [desired_roll, desired_pitch, desired_yaw],
+            control_surfaces,
+        };
+    }
 }
 
 impl MissionApp for GncComponent {
@@ -153,8 +361,11 @@ impl MissionApp for GncComponent {
 
     fn step(&mut self, ctx: &AppContext<'_>) -> Result<(), SdkError> {
         self.step_filter(ctx.time);
+        self.update_guidance_and_control();
         let payload = Self::encode_solution(&self.solution());
+        let command_payload = Self::encode_command(&self.control_command());
         ctx.bus.publish(&GNC_SOLUTION_TOPIC, payload)?;
+        ctx.bus.publish(&GNC_COMMAND_TOPIC, command_payload)?;
         Ok(())
     }
 
@@ -221,6 +432,28 @@ pub fn new_shared_gnc_component(config: GncConfig) -> (SharedGncComponent, GncCo
     let component = Arc::new(Mutex::new(GncComponent::new(config)));
     let proxy = GncComponentProxy::new(Arc::clone(&component));
     (component, proxy)
+}
+
+fn sub_vec3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[0] - right[0],
+        left[1] - right[1],
+        left[2] - right[2],
+    ]
+}
+
+fn wrap_angle(angle: f64) -> f64 {
+    let two_pi = 2.0 * core::f64::consts::PI;
+    let wrapped = (angle + core::f64::consts::PI).rem_euclid(two_pi) - core::f64::consts::PI;
+    if wrapped == -core::f64::consts::PI {
+        core::f64::consts::PI
+    } else {
+        wrapped
+    }
+}
+
+fn clamp(value: f64, min: f64, max: f64) -> f64 {
+    value.max(min).min(max)
 }
 
 impl FswComponent for GncComponentProxy {

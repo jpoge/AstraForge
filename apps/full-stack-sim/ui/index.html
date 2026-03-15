@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AstraForge Sim Console</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div class="hero-brand">
+          <p class="eyebrow">AstraForge Mission Console</p>
+          <div class="hero-controls">
+            <button id="launch-button" class="accent-button" type="button">Launch</button>
+            <button id="run-toggle" type="button">Run</button>
+            <button id="step-1" type="button">Step 1</button>
+            <button id="step-10" type="button">Step 10</button>
+            <button id="reset-button" class="danger-button" type="button">Reset Flight</button>
+            <button id="windows-button" class="secondary-button" type="button">Windows</button>
+          </div>
+        </div>
+        <div class="hero-status">
+          <div class="hero-chip">
+            <span>Transport</span>
+            <strong id="connection-status">Connecting</strong>
+          </div>
+          <div class="hero-chip">
+            <span>API</span>
+            <strong id="api-version">unknown</strong>
+          </div>
+          <div class="hero-chip">
+            <span>Schema</span>
+            <strong id="schema-version">unknown</strong>
+          </div>
+        </div>
+      </header>
+
+      <div id="windows-popup" class="windows-popup" hidden>
+        <div class="windows-popup-head">
+          <strong>Window Visibility</strong>
+          <button id="windows-close-button" class="secondary-button" type="button">Close</button>
+        </div>
+        <div id="windows-list" class="windows-list"></div>
+      </div>
+
+      <main class="grid">
+        <section class="card summary-card" data-card-id="summary">
+          <div class="card-head">
+            <h2>Mission</h2>
+            <span id="mission-time" class="pill">0 ms</span>
+          </div>
+          <div class="summary-grid">
+            <div>
+              <span class="label">Phase</span>
+              <strong id="phase-value">pad</strong>
+            </div>
+            <div>
+              <span class="label">Phase Control</span>
+              <strong id="phase-control-value">auto</strong>
+            </div>
+            <div>
+              <span class="label">Vehicle Mode</span>
+              <strong id="vehicle-mode-value">safe</strong>
+            </div>
+            <div>
+              <span class="label">FC Mode</span>
+              <strong id="fc-mode-value">standby</strong>
+            </div>
+          </div>
+          <div class="phase-strip" id="phase-strip"></div>
+        </section>
+
+        <section class="card command-card" data-card-id="commands">
+          <div class="card-head">
+            <h2>Command Panels</h2>
+            <button id="refresh-button" class="secondary-button" type="button">Refresh</button>
+          </div>
+          <div id="command-panels" class="command-panels"></div>
+        </section>
+
+        <section class="card systems-card" data-card-id="systems">
+          <div class="card-head">
+            <h2>Subsystems</h2>
+            <span class="muted">Health and mode</span>
+          </div>
+          <div id="systems-grid" class="systems-grid"></div>
+        </section>
+
+        <section class="card map-card" data-card-id="map">
+          <div class="card-head">
+            <h2>Mission Map</h2>
+            <span class="muted">Drag pan, wheel zoom, click to cycle xy/xz/yz, shift-click to retarget</span>
+          </div>
+          <div class="map-shell">
+            <div class="map-controls">
+              <button id="focus-vehicle-button" type="button">Focus Vehicle</button>
+              <button id="focus-target-button" type="button">Focus Target</button>
+              <button id="reset-view-button" class="secondary-button" type="button">Reset View</button>
+            </div>
+            <canvas id="mission-map" class="mission-map"></canvas>
+            <div class="map-readout">
+              <div>
+                <span class="label">Vehicle</span>
+                <strong id="vehicle-geodetic">0, 0, 0</strong>
+              </div>
+              <div>
+                <span class="label">Target</span>
+                <strong id="target-geodetic">0, 0, 0</strong>
+              </div>
+              <div>
+                <span class="label">View</span>
+                <strong id="map-view">xy zoom 1.0</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card telemetry-card" data-card-id="telemetry">
+          <div class="card-head">
+            <h2>Navigation</h2>
+            <span class="muted">Truth and estimate</span>
+          </div>
+          <div class="telemetry-grid">
+            <div class="metric-block">
+              <span class="label">Position</span>
+              <strong id="truth-position">0, 0, 0</strong>
+            </div>
+            <div class="metric-block">
+              <span class="label">Velocity</span>
+              <strong id="truth-velocity">0, 0, 0</strong>
+            </div>
+            <div class="metric-block">
+              <span class="label">Attitude</span>
+              <strong id="gnc-attitude">0, 0, 0</strong>
+            </div>
+            <div class="metric-block">
+              <span class="label">Downrange</span>
+              <strong id="downrange-value">0 m</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="card trends-card" data-card-id="trends">
+          <div class="card-head">
+            <h2>Trend Plots</h2>
+            <span class="muted">Truth minus FSW estimate error</span>
+          </div>
+          <div class="trend-grid">
+            <div class="trend-panel">
+              <div class="trend-head">
+                <span>Position</span>
+                <strong id="trend-position-value">dx 0 dy 0 dz 0 m</strong>
+              </div>
+              <div class="trend-legend">
+                <span class="legend-item"><i class="legend-swatch axis-x"></i>X</span>
+                <span class="legend-item"><i class="legend-swatch axis-y"></i>Y</span>
+                <span class="legend-item"><i class="legend-swatch axis-z"></i>Z</span>
+              </div>
+              <svg id="trend-position" class="trend-chart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="trend-panel">
+              <div class="trend-head">
+                <span>Velocity</span>
+                <strong id="trend-velocity-value">dx 0 dy 0 dz 0 m/s</strong>
+              </div>
+              <div class="trend-legend">
+                <span class="legend-item"><i class="legend-swatch axis-x"></i>X</span>
+                <span class="legend-item"><i class="legend-swatch axis-y"></i>Y</span>
+                <span class="legend-item"><i class="legend-swatch axis-z"></i>Z</span>
+              </div>
+              <svg id="trend-velocity" class="trend-chart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+            </div>
+            <div class="trend-panel">
+              <div class="trend-head">
+                <span>Attitude</span>
+                <strong id="trend-attitude-value">dr 0 dp 0 dy 0 rad</strong>
+              </div>
+              <div class="trend-legend">
+                <span class="legend-item"><i class="legend-swatch axis-x"></i>Roll/X</span>
+                <span class="legend-item"><i class="legend-swatch axis-y"></i>Pitch/Y</span>
+                <span class="legend-item"><i class="legend-swatch axis-z"></i>Yaw/Z</span>
+              </div>
+              <svg id="trend-attitude" class="trend-chart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+            </div>
+          </div>
+        </section>
+
+        <section class="card propulsion-card" data-card-id="propulsion">
+          <div class="card-head">
+            <h2>Propulsion</h2>
+            <span class="muted">Adjust thrust and fuel model</span>
+          </div>
+          <div class="propulsion-summary">
+            <div class="dial">
+              <span>Throttle</span>
+              <strong id="prop-throttle-value">0%</strong>
+            </div>
+            <div class="dial">
+              <span>Thrust</span>
+              <strong id="prop-thrust-value">0 kN</strong>
+            </div>
+            <div class="dial">
+              <span>Mass Flow</span>
+              <strong id="prop-flow-value">0 kg/s</strong>
+            </div>
+            <div class="dial">
+              <span>Fuel Remaining</span>
+              <strong id="prop-fuel-value">0 kg</strong>
+            </div>
+          </div>
+          <form id="propulsion-form" class="propulsion-form">
+            <label>
+              Throttle %
+              <input id="prop-throttle-input" name="throttle_percent" type="range" min="0" max="100" step="1">
+            </label>
+            <label>
+              Max Thrust kN
+              <input id="prop-thrust-input" name="max_thrust_kn" type="number" min="1" step="1">
+            </label>
+            <label>
+              ISP s
+              <input id="prop-isp-input" name="isp_s" type="number" min="10" step="1">
+            </label>
+            <label>
+              Dry Mass kg
+              <input id="prop-dry-mass-input" name="dry_mass_kg" type="number" min="100" step="1">
+            </label>
+            <label>
+              Propellant kg
+              <input id="prop-propellant-input" name="propellant_mass_kg" type="number" min="0" step="1">
+            </label>
+            <label>
+              Consumption Scale
+              <input id="prop-consumption-input" name="consumption_scale" type="number" min="0.05" max="5" step="0.05">
+            </label>
+            <div class="propulsion-actions">
+              <button id="prop-apply-button" type="submit">Apply Propulsion</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="card instruments-card" data-card-id="instruments">
+          <div class="card-head">
+            <h2>Instruments</h2>
+            <span class="muted">Primary sensor suite</span>
+          </div>
+          <div class="instrument-grid">
+            <div class="dial">
+              <span>Altitude</span>
+              <strong id="radar-altitude">0 m</strong>
+            </div>
+            <div class="dial">
+              <span>Vertical Speed</span>
+              <strong id="vertical-speed">0 m/s</strong>
+            </div>
+            <div class="dial">
+              <span>Airspeed</span>
+              <strong id="airspeed">0 m/s</strong>
+            </div>
+            <div class="dial">
+              <span>Signal</span>
+              <strong id="signal-strength">0 dBm</strong>
+            </div>
+          </div>
+          <div class="bar-group">
+            <div class="bar-row">
+              <span>Battery SOC</span>
+              <div class="bar-track"><div id="battery-soc-bar" class="bar-fill"></div></div>
+              <strong id="battery-soc">0%</strong>
+            </div>
+            <div class="bar-row">
+              <span>CPU Load</span>
+              <div class="bar-track"><div id="cpu-load-bar" class="bar-fill accent"></div></div>
+              <strong id="cpu-load">0%</strong>
+            </div>
+            <div class="bar-row">
+              <span>Avionics Temp</span>
+              <div class="bar-track"><div id="avionics-temp-bar" class="bar-fill warning"></div></div>
+              <strong id="avionics-temp">0 C</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="card alerts-card" data-card-id="alerts">
+          <div class="card-head">
+            <h2>Anomalies and Faults</h2>
+            <span class="muted">Live FDIR view</span>
+          </div>
+          <div class="stacked-panel">
+            <div>
+              <span class="label">Injected Anomalies</span>
+              <div id="anomalies-list" class="tag-list"></div>
+            </div>
+            <div>
+              <span class="label">Fault Responses</span>
+              <div id="faults-list" class="fault-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card raw-card" data-card-id="raw">
+          <div class="card-head">
+            <h2>Telemetry Trace</h2>
+            <span class="muted">Debug strings</span>
+          </div>
+          <pre id="raw-telemetry" class="raw-telemetry"></pre>
+        </section>
+      </main>
+    </div>
+
+    <template id="select-command-template">
+      <div class="command-panel">
+        <div class="command-meta">
+          <strong class="command-label"></strong>
+          <p class="command-description"></p>
+        </div>
+        <form class="command-form">
+          <div class="field-grid"></div>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

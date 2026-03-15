@@ -34,6 +34,12 @@ The synthetic sensor and instrument set includes:
 - payload current
 - impact indication
 
+The simulation model now also includes:
+
+- geodetic vehicle position derived from the local flight state
+- a selectable geodetic target that can be updated from the web map
+- a configurable propulsion model with throttle, thrust, dry mass, propellant mass, ISP, and fuel-consumption scaling
+
 ## Running
 
 Start the interactive simulator:
@@ -46,6 +52,12 @@ Start the HTTP control server for a browser or other client:
 
 ```powershell
 cargo run -p full-stack-sim -- serve 127.0.0.1:8080
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/
 ```
 
 You can also use:
@@ -76,6 +88,7 @@ The current CLI in `src/main.rs` is only a thin shell around that engine.
 
 There is also a lightweight HTTP transport in `src/transport.rs` with permissive CORS enabled. It exposes:
 
+- `GET /` to load the graphical mission console
 - `GET /snapshot` to fetch the current sim state as JSON
 - `POST /command` to apply a command and receive the updated snapshot
 - `GET /schema` to enumerate supported commands and enum values
@@ -83,19 +96,35 @@ There is also a lightweight HTTP transport in `src/transport.rs` with permissive
 
 Typical browser flow:
 
-1. Call `GET /schema` once at startup.
-2. Build command controls from `command_catalog` and enum lists.
-3. Fetch `GET /snapshot` for the initial state.
-4. Open `GET /events` with `EventSource` for live updates.
-5. Send user actions to `POST /command`.
+1. Load `GET /` in the browser.
+2. The console calls `GET /schema` at startup.
+3. The console fetches `GET /snapshot` for the initial state.
+4. The console opens `GET /events` with `EventSource` for live updates.
+5. User actions go to `POST /command`.
 
 The transport JSON is normalized for frontend use:
 
 - enum values are lower-case strings
+- top-level map and propulsion state is exposed through `geodetic`, `target`, and `propulsion`
 - subsystem telemetry is structured under `telemetry.vehicle`, `telemetry.power`, `telemetry.thermal`, `telemetry.payload`, `telemetry.communications`, and `telemetry.guidance_navigation_control`
+- targeting and propulsion views are also available under `telemetry.targeting` and `telemetry.propulsion`
 - the older human-readable status lines are still available under `telemetry.raw` for debugging
 - every snapshot and event includes `api_version` and `schema_version`
 - `GET /schema` exposes a `command_catalog` block with labels, descriptions, paths, methods, and field metadata for UI generation
+
+The graphical console served at `GET /` includes:
+
+- mission summary and current phase strip
+- dedicated `Launch` and `Run/Pause` controls for leaving pad and continuously advancing the sim
+- a clickable mission map that shows vehicle latitude, longitude, altitude, flight trail, and target marker
+  target changes from the map require confirmation before they are applied
+- a propulsion panel for throttle, thrust, ISP, dry mass, propellant mass, and consumption scaling
+- generated command/control panels
+- subsystem health cards
+- navigation and instrument readouts
+- live anomaly and fault-response views
+- rolling trend plots for altitude, vertical speed, battery state of charge, and avionics temperature
+  the UI automatically pauses the run loop when the vehicle reaches the ground and enters impact
 
 Snapshot top-level fields:
 
@@ -106,6 +135,9 @@ Snapshot top-level fields:
 - `phase_control`
 - `flight_computer`
 - `truth`
+- `geodetic`
+- `target`
+- `propulsion`
 - `sensors`
 - `systems`
 - `anomalies`
@@ -171,6 +203,38 @@ await fetch("http://127.0.0.1:8080/command", {
   body: JSON.stringify({
     command: "set_phase_control",
     phase_control: "manual",
+  }),
+});
+```
+
+Example target update from a web client:
+
+```javascript
+await fetch("http://127.0.0.1:8080/command", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    command: "set_target",
+    latitude_deg: 34.91,
+    longitude_deg: -120.22,
+    altitude_m: 0,
+  }),
+});
+```
+
+Example propulsion update from a web client:
+
+```javascript
+await fetch("http://127.0.0.1:8080/command", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    command: "configure_propulsion",
+    max_thrust_kn: 210,
+    isp_s: 275,
+    dry_mass_kg: 1450,
+    propellant_mass_kg: 540,
+    consumption_scale: 1.1,
   }),
 });
 ```

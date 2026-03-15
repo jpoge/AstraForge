@@ -6,7 +6,7 @@ use std::path::Path;
 
 use fsw_sdk_core::SdkError;
 
-use crate::component::GncConfig;
+use crate::component::{ControlGains, GncConfig};
 use crate::ekf::EkfTuning;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,6 +25,12 @@ pub struct MissionConfig {
     pub gps_period_ms: u64,
     pub magnetometer_period_ms: u64,
     pub heartbeat_timeout_ms: u64,
+    pub guidance_position_gain: f64,
+    pub guidance_velocity_gain: f64,
+    pub guidance_yaw_gain: f64,
+    pub control_roll_gain: f64,
+    pub control_pitch_gain: f64,
+    pub control_rate_damping: f64,
 }
 
 impl MissionConfig {
@@ -63,6 +69,12 @@ impl MissionConfig {
                 "gps_period_ms" => config.gps_period_ms = parse_u64(value)?,
                 "magnetometer_period_ms" => config.magnetometer_period_ms = parse_u64(value)?,
                 "heartbeat_timeout_ms" => config.heartbeat_timeout_ms = parse_u64(value)?,
+                "guidance_position_gain" => config.guidance_position_gain = parse_f64(value)?,
+                "guidance_velocity_gain" => config.guidance_velocity_gain = parse_f64(value)?,
+                "guidance_yaw_gain" => config.guidance_yaw_gain = parse_f64(value)?,
+                "control_roll_gain" => config.control_roll_gain = parse_f64(value)?,
+                "control_pitch_gain" => config.control_pitch_gain = parse_f64(value)?,
+                "control_rate_damping" => config.control_rate_damping = parse_f64(value)?,
                 _ => return Err(SdkError::InvalidConfig),
             }
         }
@@ -84,6 +96,15 @@ impl MissionConfig {
         GncConfig {
             ekf_rate_hz: self.ekf_rate_hz,
             tuning: self.ekf_tuning(),
+            control: ControlGains {
+                position_gain: self.guidance_position_gain,
+                velocity_gain: self.guidance_velocity_gain,
+                yaw_gain: self.guidance_yaw_gain,
+                roll_gain: self.control_roll_gain,
+                pitch_gain: self.control_pitch_gain,
+                body_rate_damping: self.control_rate_damping,
+                ..ControlGains::default()
+            },
         }
     }
 
@@ -118,6 +139,12 @@ impl Default for MissionConfig {
             gps_period_ms: 200,
             magnetometer_period_ms: 100,
             heartbeat_timeout_ms: 250,
+            guidance_position_gain: 0.012,
+            guidance_velocity_gain: 0.11,
+            guidance_yaw_gain: 0.85,
+            control_roll_gain: 1.35,
+            control_pitch_gain: 1.1,
+            control_rate_damping: 0.35,
         }
     }
 }
