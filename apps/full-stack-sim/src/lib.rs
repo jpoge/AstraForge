@@ -137,7 +137,40 @@ pub struct TargetState {
 pub struct LaunchVector {
     pub azimuth_deg: f64,
     pub elevation_deg: f64,
-    pub range_m: f64,
+    pub altitude_m: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TargetOffset {
+    pub east_m: f64,
+    pub north_m: f64,
+    pub altitude_m: f64,
+}
+
+const LAUNCH_VECTOR_TARGET_DISTANCE_M: f64 = 1_000.0;
+
+impl LaunchVector {
+    fn local_target(&self) -> [f64; 3] {
+        let az = self.azimuth_deg.to_radians();
+        let el = self.elevation_deg.to_radians();
+        let horizontal = LAUNCH_VECTOR_TARGET_DISTANCE_M * el.cos();
+        [
+            horizontal * az.sin(),
+            horizontal * az.cos(),
+            self.altitude_m,
+        ]
+    }
+
+    fn velocity_along_vector(&self, speed_mps: f64) -> [f64; 3] {
+        let az = self.azimuth_deg.to_radians();
+        let el = self.elevation_deg.to_radians();
+        let horizontal_speed = speed_mps * el.cos();
+        [
+            horizontal_speed * az.sin(),
+            horizontal_speed * az.cos(),
+            speed_mps * el.sin(),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,6 +237,9 @@ pub struct SimulationSnapshot {
     pub geodetic: GeodeticPosition,
     pub target: TargetState,
     pub launch_vector: LaunchVector,
+    pub controlled_flight_enabled: bool,
+    pub target_offset: TargetOffset,
+    pub has_left_pad: bool,
     pub propulsion: PropulsionState,
     pub control_surfaces: ControlSurfaceState,
     pub aerodynamics: AeroState,
@@ -220,9 +256,9 @@ pub struct SimConfig {
     pub scheduler: SchedulerConfig,
     pub gnc: GncConfig,
     pub vehicle: VehicleModelConfig,
-    pub launch_azimuth_deg: f64,
-    pub launch_elevation_deg: f64,
-    pub launch_range_m: f64,
+    pub launch_vector: LaunchVector,
+    pub target_offset: TargetOffset,
+    pub controlled_flight_enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -302,14 +338,23 @@ impl Default for VehicleModelConfig {
 
 impl Default for SimConfig {
     fn default() -> Self {
+        let launch_vector = LaunchVector {
+            azimuth_deg: 90.0,
+            elevation_deg: 0.0,
+            altitude_m: 0.0,
+        };
         Self {
             step_ms: 100,
             scheduler: SchedulerConfig::default(),
             gnc: GncConfig::default(),
             vehicle: VehicleModelConfig::default(),
-            launch_azimuth_deg: 90.0,
-            launch_elevation_deg: 0.0,
-            launch_range_m: 1_000.0,
+            launch_vector,
+            target_offset: TargetOffset {
+                east_m: 1_000.0,
+                north_m: 0.0,
+                altitude_m: 0.0,
+            },
+            controlled_flight_enabled: true,
         }
     }
 }
@@ -317,14 +362,11 @@ impl Default for SimConfig {
 impl SimConfig {
     #[must_use]
     pub fn initial_target_offset(&self) -> [f64; 3] {
-        let az_rad = self.launch_azimuth_deg.to_radians();
-        let el_rad = self.launch_elevation_deg.to_radians();
-        let range = self.launch_range_m.max(1.0);
-        let horizontal = range * el_rad.cos();
-        let east = horizontal * az_rad.sin();
-        let north = horizontal * az_rad.cos();
-        let altitude = range * el_rad.sin();
-        [east, north, altitude]
+        [
+            self.target_offset.east_m,
+            self.target_offset.north_m,
+            self.target_offset.altitude_m,
+        ]
     }
 }
 
@@ -339,8 +381,14 @@ pub enum SimulatorCommand {
     ConfigureLaunchVector {
         azimuth_deg: f64,
         elevation_deg: f64,
-        range_m: f64,
+        altitude_m: Option<f64>,
     },
+    ConfigureTargetOffset {
+        east_m: f64,
+        north_m: f64,
+        altitude_m: f64,
+    },
+    SetControlledFlight(bool),
     Inject(SimAnomaly),
     Clear(SimAnomaly),
     ClearAllAnomalies,
@@ -427,6 +475,7 @@ pub struct FullStackSim {
     truth: TruthState,
     geodetic: GeodeticPosition,
     target: TargetState,
+    target_offset: TargetOffset,
     propulsion: PropulsionState,
     control_surfaces: ControlSurfaceState,
     aerodynamics: AeroState,
@@ -439,6 +488,8 @@ pub struct FullStackSim {
     power: Arc<Mutex<PowerManagementApp>>,
     thermal: Arc<Mutex<ThermalManagementApp>>,
     payload: Arc<Mutex<PayloadInterfaceApp>>,
+    has_left_pad: bool,
+    controlled_flight_enabled: bool,
 }
 
 impl FullStackSim {
@@ -489,8 +540,13 @@ impl FullStackSim {
         };
         let initial_time = MissionTime(0);
         let geodetic = geodetic_from_local(truth.position_m);
-        let launch_local = config.initial_target_offset();
-        let target_geodetic = geodetic_from_local(launch_local);
+        let target_offset = config.target_offset;
+        let target_local = [
+            target_offset.east_m,
+            target_offset.north_m,
+            target_offset.altitude_m,
+        ];
+        let target_geodetic = geodetic_from_local(target_local);
         let target = TargetState {
             latitude_deg: target_geodetic.latitude_deg,
             longitude_deg: target_geodetic.longitude_deg,
@@ -549,6 +605,7 @@ impl FullStackSim {
             truth,
             geodetic,
             target,
+            target_offset,
             propulsion,
             control_surfaces,
             aerodynamics,
@@ -561,11 +618,25 @@ impl FullStackSim {
             power,
             thermal,
             payload,
+            has_left_pad: false,
+            controlled_flight_enabled: config.controlled_flight_enabled,
         };
         sim.init_mission_apps()?;
         sim.step_apps(false)?;
         sim.collect_telemetry()?;
         Ok(sim)
+    }
+
+    fn set_target_offset(&mut self, offset: TargetOffset) {
+        let target_geodetic =
+            geodetic_from_local([offset.east_m, offset.north_m, offset.altitude_m]);
+        self.target = TargetState {
+            latitude_deg: target_geodetic.latitude_deg,
+            longitude_deg: target_geodetic.longitude_deg,
+            altitude_m: target_geodetic.altitude_m,
+        };
+        self.target_offset = offset;
+        self.config.target_offset = offset;
     }
 
     pub fn apply_command(&mut self, command: SimulatorCommand) -> Result<(), SdkError> {
@@ -587,7 +658,12 @@ impl FullStackSim {
                 self.refresh(false)
             }
             SimulatorCommand::SetTarget(target) => {
-                self.target = target;
+                let offset = local_from_target(target);
+                self.set_target_offset(TargetOffset {
+                    east_m: offset[0],
+                    north_m: offset[1],
+                    altitude_m: offset[2],
+                });
                 self.refresh(false)
             }
             SimulatorCommand::ConfigurePropulsion(config) => {
@@ -602,11 +678,31 @@ impl FullStackSim {
             SimulatorCommand::ConfigureLaunchVector {
                 azimuth_deg,
                 elevation_deg,
-                range_m,
+                altitude_m,
             } => {
-                self.config.launch_azimuth_deg = azimuth_deg;
-                self.config.launch_elevation_deg = elevation_deg;
-                self.config.launch_range_m = range_m.max(1.0);
+                let mut vector = self.config.launch_vector;
+                vector.azimuth_deg = azimuth_deg;
+                vector.elevation_deg = elevation_deg;
+                if let Some(value) = altitude_m {
+                    vector.altitude_m = value;
+                }
+                self.config.launch_vector = vector;
+                self.refresh(false)
+            }
+            SimulatorCommand::ConfigureTargetOffset {
+                east_m,
+                north_m,
+                altitude_m,
+            } => {
+                self.set_target_offset(TargetOffset {
+                    east_m,
+                    north_m,
+                    altitude_m,
+                });
+                self.refresh(false)
+            }
+            SimulatorCommand::SetControlledFlight(enabled) => {
+                self.controlled_flight_enabled = enabled;
                 self.refresh(false)
             }
             SimulatorCommand::Inject(anomaly) => {
@@ -673,11 +769,10 @@ impl FullStackSim {
             truth: self.truth,
             geodetic: self.geodetic,
             target: self.target,
-            launch_vector: LaunchVector {
-                azimuth_deg: self.config.launch_azimuth_deg,
-                elevation_deg: self.config.launch_elevation_deg,
-                range_m: self.config.launch_range_m,
-            },
+            launch_vector: self.config.launch_vector,
+            controlled_flight_enabled: self.controlled_flight_enabled,
+            target_offset: self.target_offset,
+            has_left_pad: self.has_left_pad,
             propulsion: self.propulsion,
             control_surfaces: self.control_surfaces,
             aerodynamics: self.aerodynamics,
@@ -855,7 +950,10 @@ impl FullStackSim {
 
     fn maybe_transition_phase(&mut self) {
         let altitude = self.truth.position_m[2];
-        if altitude <= 0.0 && self.phase != MissionPhase::PadInitialization {
+        if altitude <= 0.0
+            && self.phase != MissionPhase::PadInitialization
+            && (self.phase != MissionPhase::Launch || self.has_left_pad)
+        {
             self.phase = MissionPhase::Impact;
             return;
         }
@@ -888,10 +986,15 @@ impl FullStackSim {
                 desired_attitude_rad: [0.0; 3],
                 control_surfaces: [0.0; 3],
             });
+        let command_surfaces = if self.controlled_flight_enabled {
+            gnc_command.control_surfaces
+        } else {
+            [0.0; 3]
+        };
         self.control_surfaces = ControlSurfaceState {
-            roll_surface: gnc_command.control_surfaces[0],
-            pitch_surface: gnc_command.control_surfaces[1],
-            yaw_surface: gnc_command.control_surfaces[2],
+            roll_surface: command_surfaces[0],
+            pitch_surface: command_surfaces[1],
+            yaw_surface: command_surfaces[2],
             desired_attitude_rad: gnc_command.desired_attitude_rad,
         };
         self.propulsion.total_mass_kg =
@@ -1070,6 +1173,9 @@ impl FullStackSim {
                 wrap_angle(self.truth.attitude_rad[axis] + euler_rates[axis] * dt_s);
         }
         self.truth.position_m[2] = self.truth.position_m[2].max(0.0);
+        if self.truth.position_m[2] > 0.0 {
+            self.has_left_pad = true;
+        }
         if self.truth.position_m[2] <= 0.0 && self.phase != MissionPhase::PadInitialization {
             self.truth.velocity_mps = [0.0; 3];
             self.truth.body_rates_rps = [0.0; 3];
@@ -1128,21 +1234,31 @@ impl FullStackSim {
     }
 
     fn update_gnc_reference(&mut self) -> Result<(), SdkError> {
-        let mode = match self.phase {
-            MissionPhase::PadInitialization | MissionPhase::Impact => GuidanceMode::Hold,
-            MissionPhase::Launch => GuidanceMode::Ascent,
-            MissionPhase::Flight => GuidanceMode::Cruise,
-            MissionPhase::Landing => GuidanceMode::Landing,
-        };
-        let target_local = local_from_target(self.target);
-        let target_velocity_mps = match self.phase {
-            MissionPhase::Launch => [0.0, 0.0, 28.0],
-            MissionPhase::Flight => [0.0, 0.0, 0.0],
-            MissionPhase::Landing => [0.0, 0.0, -8.0],
-            MissionPhase::PadInitialization | MissionPhase::Impact => [0.0; 3],
+        const LAUNCH_SPEED_MPS: f64 = 28.0;
+        let (target_position_m, target_velocity_mps, mode) = match self.phase {
+            MissionPhase::PadInitialization | MissionPhase::Impact => {
+                (local_from_target(self.target), [0.0; 3], GuidanceMode::Hold)
+            }
+            MissionPhase::Launch => (
+                self.config.launch_vector.local_target(),
+                self.config
+                    .launch_vector
+                    .velocity_along_vector(LAUNCH_SPEED_MPS),
+                GuidanceMode::Ascent,
+            ),
+            MissionPhase::Flight => (
+                local_from_target(self.target),
+                [0.0; 3],
+                GuidanceMode::Cruise,
+            ),
+            MissionPhase::Landing => (
+                local_from_target(self.target),
+                [0.0, 0.0, -8.0],
+                GuidanceMode::Landing,
+            ),
         };
         lock_arc(&self.gnc)?.set_guidance_reference(GuidanceReference {
-            target_position_m: target_local,
+            target_position_m,
             target_velocity_mps,
             mode,
         });
@@ -1647,5 +1763,24 @@ mod tests {
             final_range < initial_range,
             "{final_range} !< {initial_range}"
         );
+    }
+
+    #[test]
+    fn configure_launch_vector_preserves_altitude_unless_overridden() {
+        let mut sim = FullStackSim::new(SimConfig::default()).expect("build sim");
+        sim.apply_command(SimulatorCommand::ConfigureLaunchVector {
+            azimuth_deg: 45.0,
+            elevation_deg: 20.0,
+            altitude_m: None,
+        })
+        .expect("configure az/el");
+        assert_eq!(sim.config.launch_vector.altitude_m, 0.0);
+        sim.apply_command(SimulatorCommand::ConfigureLaunchVector {
+            azimuth_deg: 60.0,
+            elevation_deg: 10.0,
+            altitude_m: Some(500.0),
+        })
+        .expect("configure with altitude");
+        assert_eq!(sim.config.launch_vector.altitude_m, 500.0);
     }
 }

@@ -92,10 +92,10 @@ or:
 cargo run -p full-stack-sim -- --config path\\to\\my-scenario.toml serve 127.0.0.1:8080
 ```
 
-The default launch vector points east with zero elevation at 1 km range. Override it when you need a different azimuth/elevation/range:
+The default launch vector points east with zero elevation. Elevation and azimuth only define the direction; the altitude stays at whatever you last entered (default 0) unless you override it explicitly. Override the az/el/alt values when you need a different launch direction or climb height:
 
 ```powershell
-cargo run -p full-stack-sim -- --launch-az 135 --launch-el 12 --launch-range 1500
+cargo run -p full-stack-sim -- --launch-az 135 --launch-el 12 --launch-alt 500
 ```
 
 `--launch-az` is the heading measured clockwise from true north, `--launch-el` is the elevation above the horizon, and `--launch-range` sets the synthetic target distance used to initialize the GNC stack.
@@ -164,6 +164,7 @@ The graphical console served at `GET /` includes:
 - subsystem health cards
 - navigation and instrument readouts
 - target-convergence readouts for truth/estimated range, cross-track error, vertical error, and closing speed
+- a Controlled Flight toggle card that enables/disables GNC control surfaces
 - live anomaly and fault-response views
 - rolling trend plots for altitude, vertical speed, battery state of charge, and avionics temperature
   the UI automatically pauses the run loop when the vehicle reaches the ground and enters impact

@@ -214,8 +214,10 @@ body {
 .systems-card { grid-column: span 4; }
 .map-card { grid-column: span 6; }
 .telemetry-card { grid-column: span 3; }
+.target-offset-card { grid-column: span 3; }
 .propulsion-card { grid-column: span 3; }
 .instruments-card { grid-column: span 3; }
+.controlled-flight-card { grid-column: span 3; }
 .trends-card { grid-column: span 6; }
 .alerts-card { grid-column: span 3; }
 .raw-card { grid-column: span 12; }
@@ -660,6 +662,43 @@ button.running {
 
 .launch-vector-form button {
   justify-self: flex-start;
+}
+
+.target-offset-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 6px;
+}
+
+.target-offset-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.target-offset-form input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  transition: border 0.2s ease;
+}
+
+.target-offset-form input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.target-offset-form button {
+  justify-self: flex-start;
+}
+
+.controlled-flight-card button {
+  justify-self: flex-start;
+  padding-left: 1.2rem;
+  padding-right: 1.2rem;
 }
 
 .bar-row {

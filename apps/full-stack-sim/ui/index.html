@@ -131,10 +131,42 @@
               <input id="launch-el-input" name="elevation_deg" type="number" min="-90" max="90" step="0.1">
             </label>
             <label>
-              Range (m)
-              <input id="launch-range-input" name="range_m" type="number" min="1" step="10">
+              Altitude (m)
+              <input id="launch-alt-input" name="altitude_m" type="number" step="1">
             </label>
             <button type="submit" class="accent-button">Apply Launch Vector</button>
+          </form>
+        </section>
+
+        <section class="card controlled-flight-card" data-card-id="controlled-flight">
+          <div class="card-head">
+            <h2>Controlled Flight</h2>
+            <span class="muted">Toggle GNC control surfaces</span>
+          </div>
+          <button id="controlled-flight-toggle" type="button" class="accent-button">
+            Controlled Flight: On
+          </button>
+        </section>
+
+        <section class="card target-offset-card" data-card-id="target-offset">
+          <div class="card-head">
+            <h2>Target Offset</h2>
+            <span class="muted">East/north/altitude relative to launch site</span>
+          </div>
+          <form id="target-offset-form" class="target-offset-form">
+            <label>
+              East (m)
+              <input id="target-offset-east-input" name="east_m" type="number" step="1">
+            </label>
+            <label>
+              North (m)
+              <input id="target-offset-north-input" name="north_m" type="number" step="1">
+            </label>
+            <label>
+              Altitude (m)
+              <input id="target-offset-alt-input" name="altitude_m" type="number" step="1">
+            </label>
+            <button type="submit" class="accent-button">Apply Target Offset</button>
           </form>
         </section>
 

@@ -13,7 +13,8 @@ use std::time::Duration;
 use crate::{
     AeroState, ControlSurfaceState, FlightComputerMode, FlightComputerStatus, FullStackSim,
     GeodeticPosition, LaunchVector, MissionPhase, PhaseControl, PropulsionState, SensorSnapshot,
-    SimAnomaly, SimulationSnapshot, SimulatorCommand, SystemSnapshot, TargetState, TruthState,
+    SimAnomaly, SimulationSnapshot, SimulatorCommand, SystemSnapshot, TargetOffset, TargetState,
+    TruthState,
 };
 use fsw_sdk_core::SdkError;
 use payload_interface_template::PayloadMode;
@@ -123,7 +124,10 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
             "\"truth\":{},",
             "\"geodetic\":{},",
             "\"target\":{},",
+            "\"target_offset\":{},",
+            "\"has_left_pad\":{},",
             "\"launch_vector\":{},",
+            "\"controlled_flight_enabled\":{},",
             "\"propulsion\":{},",
             "\"control_surfaces\":{},",
             "\"aerodynamics\":{},",
@@ -143,7 +147,10 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
         truth_state_json(snapshot.truth),
         geodetic_position_json(snapshot.geodetic),
         target_json(snapshot.target),
+        target_offset_json(snapshot.target_offset),
+        snapshot.has_left_pad,
         launch_vector_json(snapshot.launch_vector),
+        snapshot.controlled_flight_enabled,
         propulsion_json(snapshot.propulsion),
         control_surface_json(snapshot.control_surfaces),
         aerodynamic_json(snapshot.aerodynamics),
@@ -182,6 +189,10 @@ pub fn schema_json() -> String {
             "\"truth\",",
             "\"geodetic\",",
             "\"target\",",
+            "\"launch_vector\",",
+            "\"controlled_flight_enabled\",",
+            "\"target_offset\",",
+            "\"has_left_pad\",",
             "\"propulsion\",",
             "\"control_surfaces\",",
             "\"aerodynamics\",",
@@ -197,6 +208,9 @@ pub fn schema_json() -> String {
             "\"set_phase\":{{\"fields\":[\"phase\"]}},",
             "\"set_phase_control\":{{\"fields\":[\"phase_control\"]}},",
             "\"set_target\":{{\"fields\":[\"latitude_deg\",\"longitude_deg\",\"altitude_m\"]}},",
+            "\"configure_launch_vector\":{{\"fields\":[\"azimuth_deg\",\"elevation_deg\",\"altitude_m\"]}},",
+            "\"configure_target_offset\":{{\"fields\":[\"east_m\",\"north_m\",\"altitude_m\"]}},",
+            "\"set_controlled_flight\":{{\"fields\":[\"enabled\"]}},",
             "\"configure_propulsion\":{{\"fields\":[\"throttle_percent\",\"max_thrust_kn\",\"isp_s\",\"dry_mass_kg\",\"propellant_mass_kg\",\"consumption_scale\"]}},",
             "\"inject\":{{\"fields\":[\"anomaly\"]}},",
             "\"clear\":{{\"fields\":[\"anomaly\"]}},",
@@ -291,8 +305,16 @@ pub fn parse_command_json(body: &str) -> Result<SimulatorCommand, SdkError> {
             azimuth_deg: extract_json_f64(body, "azimuth_deg").ok_or(SdkError::InvalidConfig)?,
             elevation_deg: extract_json_f64(body, "elevation_deg")
                 .ok_or(SdkError::InvalidConfig)?,
-            range_m: extract_json_f64(body, "range_m").ok_or(SdkError::InvalidConfig)?,
+            altitude_m: extract_json_f64(body, "altitude_m"),
         }),
+        "configure_target_offset" => Ok(SimulatorCommand::ConfigureTargetOffset {
+            east_m: extract_json_f64(body, "east_m").ok_or(SdkError::InvalidConfig)?,
+            north_m: extract_json_f64(body, "north_m").ok_or(SdkError::InvalidConfig)?,
+            altitude_m: extract_json_f64(body, "altitude_m").unwrap_or(0.0),
+        }),
+        "set_controlled_flight" => Ok(SimulatorCommand::SetControlledFlight(
+            extract_json_bool(body, "enabled").ok_or(SdkError::InvalidConfig)?,
+        )),
         "inject" => Ok(SimulatorCommand::Inject(parse_anomaly(
             extract_json_string(body, "anomaly").as_deref(),
         )?)),
@@ -551,10 +573,17 @@ fn target_json(target: TargetState) -> String {
     )
 }
 
+fn target_offset_json(offset: TargetOffset) -> String {
+    format!(
+        "{{\"east_m\":{},\"north_m\":{},\"altitude_m\":{}}}",
+        offset.east_m, offset.north_m, offset.altitude_m
+    )
+}
+
 fn launch_vector_json(vector: LaunchVector) -> String {
     format!(
-        "{{\"azimuth_deg\":{},\"elevation_deg\":{},\"range_m\":{}}}",
-        vector.azimuth_deg, vector.elevation_deg, vector.range_m
+        "{{\"azimuth_deg\":{},\"elevation_deg\":{},\"altitude_m\":{}}}",
+        vector.azimuth_deg, vector.elevation_deg, vector.altitude_m
     )
 }
 
@@ -905,8 +934,20 @@ fn command_catalog() -> Vec<String> {
         command_descriptor_json(
             "configure_launch_vector",
             "Set Launch Vector",
-            "Adjust the initial azimuth, elevation, and range for the launch target.",
-            "[{\"name\":\"azimuth_deg\",\"type\":\"f64\",\"required\":true,\"default\":90.0},{\"name\":\"elevation_deg\",\"type\":\"f64\",\"required\":true,\"default\":0.0},{\"name\":\"range_m\",\"type\":\"f64\",\"required\":true,\"default\":1000.0,\"min\":1.0}]",
+            "Adjust the initial azimuth, elevation, and altitude for the launch target.",
+            "[{\"name\":\"azimuth_deg\",\"type\":\"f64\",\"required\":true,\"default\":90.0},{\"name\":\"elevation_deg\",\"type\":\"f64\",\"required\":true,\"default\":0.0},{\"name\":\"altitude_m\",\"type\":\"f64\",\"required\":false,\"default\":0.0}]",
+        ),
+        command_descriptor_json(
+            "configure_target_offset",
+            "Set Target Offset",
+            "Move the guidance target relative to the launch site.",
+            "[{\"name\":\"east_m\",\"type\":\"f64\",\"required\":true},{\"name\":\"north_m\",\"type\":\"f64\",\"required\":true},{\"name\":\"altitude_m\",\"type\":\"f64\",\"required\":false,\"default\":0.0}]",
+        ),
+        command_descriptor_json(
+            "set_controlled_flight",
+            "Controlled Flight",
+            "Toggle whether GNC controls the surfaces.",
+            "[{\"name\":\"enabled\",\"type\":\"bool\",\"required\":true}]",
         ),
         command_descriptor_json(
             "inject",
@@ -1033,6 +1074,19 @@ fn extract_json_f64(input: &str, key: &str) -> Option<f64> {
         .take_while(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '+' | 'e' | 'E'))
         .collect();
     digits.parse().ok()
+}
+
+fn extract_json_bool(input: &str, key: &str) -> Option<bool> {
+    let key_index = input.find(&format!("\"{key}\""))?;
+    let value_start = input[key_index..].find(':')? + key_index + 1;
+    let remainder = input[value_start..].trim_start();
+    if remainder.starts_with("true") {
+        Some(true)
+    } else if remainder.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn parse_phase(value: Option<&str>) -> Result<MissionPhase, SdkError> {

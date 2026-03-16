@@ -25,6 +25,7 @@ const CARD_LAYOUT_KEY = "astraforge-sim-card-layout-v1";
 const CARD_VISIBILITY_KEY = "astraforge-sim-card-visibility-v1";
 const MIN_CARD_WIDTH = 220;
 const MIN_CARD_HEIGHT = 120;
+const LAUNCH_VECTOR_DISPLAY_DISTANCE_M = 1_000.0;
 
 const elements = {
   grid: document.querySelector(".grid"),
@@ -97,7 +98,12 @@ const elements = {
   launchVectorForm: document.getElementById("launch-vector-form"),
   launchAzInput: document.getElementById("launch-az-input"),
   launchElInput: document.getElementById("launch-el-input"),
-  launchRangeInput: document.getElementById("launch-range-input"),
+  launchAltInput: document.getElementById("launch-alt-input"),
+  targetOffsetForm: document.getElementById("target-offset-form"),
+  targetEastInput: document.getElementById("target-offset-east-input"),
+  targetNorthInput: document.getElementById("target-offset-north-input"),
+  targetAltInput: document.getElementById("target-offset-alt-input"),
+  controlledFlightToggle: document.getElementById("controlled-flight-toggle"),
   commandTemplate: document.getElementById("select-command-template"),
 };
 
@@ -160,6 +166,9 @@ function bindTopLevelControls() {
   elements.propThrottleInput.addEventListener("input", () => {
     elements.propThrottleValue.textContent = `${elements.propThrottleInput.value}%`;
   });
+  elements.launchAltInput.addEventListener("input", () => {
+    elements.launchAltInput.dataset.manual = "true";
+  });
   elements.propulsionForm.addEventListener("submit", handlePropulsionSubmit);
   elements.step1.addEventListener("click", () => sendCommand({ command: "step", count: 1 }));
   elements.step10.addEventListener("click", () => sendCommand({ command: "step", count: 10 }));
@@ -178,14 +187,18 @@ function bindTopLevelControls() {
     event.preventDefault();
     const az = Number(elements.launchAzInput.value) || 90;
     const el = Number(elements.launchElInput.value) || 0;
-    const range = Number(elements.launchRangeInput.value) || 1000;
+    const altitudeValue = Number(elements.launchAltInput.value);
+    const manualAltitude =
+      elements.launchAltInput.dataset.manual === "true" && Number.isFinite(altitudeValue);
     await sendCommand({
       command: "configure_launch_vector",
       azimuth_deg: clamp(az, 0, 360),
       elevation_deg: clamp(el, -90, 90),
-      range_m: Math.max(range, 1),
+      ...(manualAltitude ? { altitude_m: altitudeValue } : {}),
     });
   });
+  elements.controlledFlightToggle.addEventListener("click", toggleControlledFlight);
+  elements.targetOffsetForm.addEventListener("submit", handleTargetOffsetSubmit);
 }
 
 function renderSchema(schema) {
@@ -644,6 +657,29 @@ async function handlePropulsionSubmit(event) {
   });
 }
 
+async function handleTargetOffsetSubmit(event) {
+  event.preventDefault();
+  const east = Number(elements.targetEastInput.value) || 0;
+  const north = Number(elements.targetNorthInput.value) || 0;
+  const altitude = Number(elements.targetAltInput.value) || 0;
+  await sendCommand({
+    command: "configure_target_offset",
+    east_m: east,
+    north_m: north,
+    altitude_m: altitude,
+  });
+}
+
+async function toggleControlledFlight() {
+  if (!state.snapshot) {
+    return;
+  }
+  await sendCommand({
+    command: "set_controlled_flight",
+    enabled: !state.snapshot.controlled_flight_enabled,
+  });
+}
+
 function toggleRunLoop() {
   if (state.runTimer) {
     stopRunLoop();
@@ -737,17 +773,21 @@ function renderSnapshot(snapshot) {
   elements.propFlowValue.textContent = `${formatNumber(snapshot.propulsion.mass_flow_kgps)} kg/s`;
   elements.propFuelValue.textContent = `${formatNumber(snapshot.propulsion.propellant_mass_kg)} kg`;
   syncPropulsionInputs(snapshot.propulsion);
-  if (
-    state.runTimer &&
-    (snapshot.phase === "impact" ||
-      (snapshot.phase !== "pad" && snapshot.sensors.radar_altitude_m <= 0))
-  ) {
-    stopRunLoop();
-  }
+    if (
+      state.runTimer &&
+      (snapshot.phase === "impact" ||
+        (snapshot.phase !== "pad" &&
+          snapshot.has_left_pad &&
+          snapshot.sensors.radar_altitude_m <= 0))
+    ) {
+      stopRunLoop();
+    }
 
   renderSystems(snapshot);
   renderMap(snapshot);
   renderLaunchVector(snapshot.launch_vector);
+  renderControlledFlight(snapshot.controlled_flight_enabled);
+  renderTargetOffset(snapshot.target_offset);
   renderTrends(snapshot);
   renderAnomalies(snapshot.anomalies);
   renderFaults(snapshot.last_fault_responses);
@@ -866,10 +906,31 @@ function renderLaunchVector(vector) {
   if (document.activeElement !== elements.launchElInput) {
     elements.launchElInput.value = formatFixed(vector.elevation_deg);
   }
-  if (document.activeElement !== elements.launchRangeInput) {
-    elements.launchRangeInput.value = formatFixed(vector.range_m, 0);
+  if (document.activeElement !== elements.launchAltInput) {
+    elements.launchAltInput.value = formatFixed(vector.altitude_m, 0);
+    delete elements.launchAltInput.dataset.manual;
   }
 }
+
+function renderControlledFlight(enabled) {
+  if (!elements.controlledFlightToggle) {
+    return;
+  }
+  elements.controlledFlightToggle.textContent = `Controlled Flight: ${enabled ? "On" : "Off"}`;
+  elements.controlledFlightToggle.classList.toggle("running", enabled);
+}
+
+function renderTargetOffset(offset) {
+  if (document.activeElement !== elements.targetEastInput) {
+    elements.targetEastInput.value = formatFixed(offset.east_m, 0);
+  }
+    if (document.activeElement !== elements.targetNorthInput) {
+      elements.targetNorthInput.value = formatFixed(offset.north_m, 0);
+    }
+    if (document.activeElement !== elements.targetAltInput) {
+      elements.targetAltInput.value = formatFixed(offset.altitude_m, 0);
+    }
+  }
 
 function renderTrends(snapshot) {
   elements.trendPositionValue.textContent = formatAxisVector(
@@ -1076,11 +1137,13 @@ function drawLaunchVectorArrow(ctx, snapshot, centerX, centerY, scale) {
 function launchVectorToLocal(vector) {
   const az = radians(vector.azimuth_deg);
   const el = radians(vector.elevation_deg);
-  const range = Math.max(vector.range_m, 1);
-  const horizontal = range * Math.cos(el);
+  const horizontal = LAUNCH_VECTOR_DISPLAY_DISTANCE_M * Math.cos(el);
   const east = horizontal * Math.sin(az);
   const north = horizontal * Math.cos(az);
-  const altitude = range * Math.sin(el);
+  const altitude =
+    Number.isFinite(vector.altitude_m) && vector.altitude_m !== null
+      ? vector.altitude_m
+      : LAUNCH_VECTOR_DISPLAY_DISTANCE_M * Math.sin(el);
   return [east, north, altitude];
 }
 

@@ -8,7 +8,7 @@ use fsw_sdk_core::SdkError;
 use fsw_sdk_runtime::SchedulerConfig;
 use simple_gnc::GncConfig;
 
-use crate::{SimConfig, VehicleModelConfig};
+use crate::{LaunchVector, SimConfig, TargetOffset, VehicleModelConfig};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenarioConfig {
@@ -18,7 +18,11 @@ pub struct ScenarioConfig {
     pub heartbeat_timeout_ms: u64,
     pub launch_azimuth_deg: f64,
     pub launch_elevation_deg: f64,
-    pub launch_range_m: f64,
+    pub launch_altitude_m: f64,
+    pub target_offset_east_m: f64,
+    pub target_offset_north_m: f64,
+    pub target_offset_altitude_m: f64,
+    pub controlled_flight_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,7 +87,13 @@ impl ScenarioConfig {
                 "heartbeat_timeout_ms" => config.heartbeat_timeout_ms = parse_u64(value)?,
                 "launch_azimuth_deg" => config.launch_azimuth_deg = parse_f64(value)?,
                 "launch_elevation_deg" => config.launch_elevation_deg = parse_f64(value)?,
-                "launch_range_m" => config.launch_range_m = parse_f64(value)?,
+                "launch_altitude_m" => config.launch_altitude_m = parse_f64(value)?,
+                "target_offset_east_m" => config.target_offset_east_m = parse_f64(value)?,
+                "target_offset_north_m" => config.target_offset_north_m = parse_f64(value)?,
+                "target_offset_altitude_m" => config.target_offset_altitude_m = parse_f64(value)?,
+                "controlled_flight_enabled" => {
+                    config.controlled_flight_enabled = parse_bool(value)?
+                }
                 _ => return Err(SdkError::InvalidConfig),
             }
         }
@@ -92,7 +102,6 @@ impl ScenarioConfig {
             || config.step_ms == 0
             || config.ekf_rate_hz == 0
             || config.heartbeat_timeout_ms == 0
-            || config.launch_range_m <= 0.0
         {
             return Err(SdkError::InvalidConfig);
         }
@@ -109,9 +118,13 @@ impl Default for ScenarioConfig {
             step_ms: sim.step_ms,
             ekf_rate_hz: sim.gnc.ekf_rate_hz,
             heartbeat_timeout_ms: sim.scheduler.heartbeat_timeout_ms,
-            launch_azimuth_deg: sim.launch_azimuth_deg,
-            launch_elevation_deg: sim.launch_elevation_deg,
-            launch_range_m: sim.launch_range_m,
+            launch_azimuth_deg: sim.launch_vector.azimuth_deg,
+            launch_elevation_deg: sim.launch_vector.elevation_deg,
+            launch_altitude_m: sim.launch_vector.altitude_m,
+            target_offset_east_m: sim.target_offset.east_m,
+            target_offset_north_m: sim.target_offset.north_m,
+            target_offset_altitude_m: sim.target_offset.altitude_m,
+            controlled_flight_enabled: sim.controlled_flight_enabled,
         }
     }
 }
@@ -283,9 +296,17 @@ pub fn load_sim_config(path: impl AsRef<Path>) -> Result<SimConfig, SdkError> {
             ..GncConfig::default()
         },
         vehicle: vehicle.vehicle_model(),
-        launch_azimuth_deg: scenario.launch_azimuth_deg,
-        launch_elevation_deg: scenario.launch_elevation_deg,
-        launch_range_m: scenario.launch_range_m,
+        launch_vector: LaunchVector {
+            azimuth_deg: scenario.launch_azimuth_deg,
+            elevation_deg: scenario.launch_elevation_deg,
+            altitude_m: scenario.launch_altitude_m,
+        },
+        target_offset: TargetOffset {
+            east_m: scenario.target_offset_east_m,
+            north_m: scenario.target_offset_north_m,
+            altitude_m: scenario.target_offset_altitude_m,
+        },
+        controlled_flight_enabled: scenario.controlled_flight_enabled,
     })
 }
 
@@ -313,6 +334,14 @@ fn parse_f64(value: &str) -> Result<f64, SdkError> {
     value.parse::<f64>().map_err(|_| SdkError::InvalidConfig)
 }
 
+fn parse_bool(value: &str) -> Result<bool, SdkError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => Err(SdkError::InvalidConfig),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -327,6 +356,10 @@ mod tests {
 step_ms = 40
 ekf_rate_hz = 50
 heartbeat_timeout_ms = 350
+launch_altitude_m = 1200.0
+target_offset_east_m = 1025.0
+target_offset_north_m = 150.0
+target_offset_altitude_m = 80.0
 ",
         )
         .expect("config");
@@ -335,6 +368,23 @@ heartbeat_timeout_ms = 350
         assert_eq!(config.step_ms, 40);
         assert_eq!(config.ekf_rate_hz, 50);
         assert_eq!(config.heartbeat_timeout_ms, 350);
+        assert_eq!(config.launch_altitude_m, 1200.0);
+        assert_eq!(config.target_offset_east_m, 1025.0);
+        assert_eq!(config.target_offset_north_m, 150.0);
+        assert_eq!(config.target_offset_altitude_m, 80.0);
+        assert!(config.controlled_flight_enabled);
+    }
+
+    #[test]
+    fn parses_controlled_flight_flag() {
+        let config = ScenarioConfig::parse(
+            "vehicle_config = ../vehicles/custom.toml
+controlled_flight_enabled = false
+",
+        )
+        .expect("config");
+
+        assert!(!config.controlled_flight_enabled);
     }
 
     #[test]
@@ -411,13 +461,13 @@ ekf_rate_hz = 40
 heartbeat_timeout_ms = 300
 launch_azimuth_deg = 135.0
 launch_elevation_deg = 12.5
-launch_range_m = 1500.0
+launch_altitude_m = 420.0
 ",
         )
         .expect("config");
 
         assert_eq!(config.launch_azimuth_deg, 135.0);
         assert_eq!(config.launch_elevation_deg, 12.5);
-        assert_eq!(config.launch_range_m, 1500.0);
+        assert_eq!(config.launch_altitude_m, 420.0);
     }
 }

@@ -98,15 +98,13 @@ fn parse_config_path(args: &[String]) -> Option<&str> {
 
 fn apply_launch_overrides(config: &mut SimConfig, args: &[String]) {
     if let Some(az) = parse_launch_arg(args, "--launch-az") {
-        config.launch_azimuth_deg = az;
+        config.launch_vector.azimuth_deg = az;
     }
     if let Some(el) = parse_launch_arg(args, "--launch-el") {
-        config.launch_elevation_deg = el;
+        config.launch_vector.elevation_deg = el;
     }
-    if let Some(range) = parse_launch_arg(args, "--launch-range") {
-        if range > 0.0 {
-            config.launch_range_m = range;
-        }
+    if let Some(alt) = parse_launch_arg(args, "--launch-alt") {
+        config.launch_vector.altitude_m = alt;
     }
 }
 
@@ -148,6 +146,10 @@ fn handle_command(sim: &mut FullStackSim, line: &str) -> Result<(), fsw_sdk_core
         "inject" => {
             let anomaly = parse_anomaly(parts.next())?;
             sim.apply_command(SimulatorCommand::Inject(anomaly))
+        }
+        "set_controlled_flight" => {
+            let enabled = parse_bool_flag(parts.next())?;
+            sim.apply_command(SimulatorCommand::SetControlledFlight(enabled))
         }
         "clear" => match parts.next() {
             Some("all") => sim.apply_command(SimulatorCommand::ClearAllAnomalies),
@@ -201,12 +203,24 @@ fn parse_event(value: Option<&str>) -> Result<VehicleEvent, fsw_sdk_core::SdkErr
     }
 }
 
+fn parse_bool_flag(value: Option<&str>) -> Result<bool, fsw_sdk_core::SdkError> {
+    match value.map(|value| value.to_ascii_lowercase()) {
+        Some(ref flag) if flag == "true" || flag == "on" => Ok(true),
+        Some(ref flag) if flag == "false" || flag == "off" => Ok(false),
+        _ => Err(fsw_sdk_core::SdkError::InvalidConfig),
+    }
+}
+
 fn print_help() {
     println!("--config <path>    load sim/vehicle config from file");
+    println!("--launch-az <deg>  override launch azimuth");
+    println!("--launch-el <deg>  override launch elevation");
+    println!("--launch-alt <m>   override launch altitude");
     println!("status");
     println!("step [n]");
     println!("reset");
     println!("control <auto|manual>");
+    println!("set_controlled_flight <on|off>");
     println!("phase <pad|launch|flight|landing|impact>");
     println!("inject <gps-dropout|imu-bias|battery-sag|thermal-runaway|comm-loss|payload-fault|engine-failure|hard-landing>");
     println!("clear <anomaly|all>");
