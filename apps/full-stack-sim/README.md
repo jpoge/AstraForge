@@ -92,13 +92,13 @@ or:
 cargo run -p full-stack-sim -- --config path\\to\\my-scenario.toml serve 127.0.0.1:8080
 ```
 
-The default launch vector points east with zero elevation. Elevation and azimuth only define the direction; the altitude stays at whatever you last entered (default 0) unless you override it explicitly. Override the az/el/alt values when you need a different launch direction or climb height:
+The default launch vector points east with zero elevation. Azimuth/elevation define the direction the vehicle points; the altitude field acts as a static vertical offset that layers on top of that direction. Override az/el/alt if you need a different launch direction or climb height:
 
 ```powershell
 cargo run -p full-stack-sim -- --launch-az 135 --launch-el 12 --launch-alt 500
 ```
 
-`--launch-az` is the heading measured clockwise from true north, `--launch-el` is the elevation above the horizon, and `--launch-range` sets the synthetic target distance used to initialize the GNC stack.
+`--launch-az` is the heading measured clockwise from true north, `--launch-el` is the elevation above the horizon, and `--launch-alt` adds a constant altitude offset to that launch line.
 
 To define a new airframe, create another vehicle file under `config/vehicles/` and point a scenario at it:
 

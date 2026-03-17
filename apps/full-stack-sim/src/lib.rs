@@ -157,7 +157,7 @@ impl LaunchVector {
         [
             horizontal * az.sin(),
             horizontal * az.cos(),
-            self.altitude_m,
+            LAUNCH_VECTOR_TARGET_DISTANCE_M * el.sin() + self.altitude_m,
         ]
     }
 
@@ -531,10 +531,13 @@ impl FullStackSim {
         )))?;
         runtime.start_all()?;
 
+        let launch_yaw =
+            std::f64::consts::FRAC_PI_2 - config.launch_vector.azimuth_deg.to_radians();
+        let launch_pitch = -config.launch_vector.elevation_deg.to_radians();
         let truth = TruthState {
             position_m: [0.0, 0.0, 0.0],
             velocity_mps: [0.0, 0.0, 0.0],
-            attitude_rad: [0.0, 0.0, 0.0],
+            attitude_rad: [0.0, launch_pitch, launch_yaw],
             body_accel_mps2: [0.0, 0.0, 0.0],
             body_rates_rps: [0.0, 0.0, 0.0],
         };
@@ -842,9 +845,14 @@ impl FullStackSim {
         {
             let mut gnc = lock_arc(&self.gnc)?;
             gnc.set_guidance_reference(GuidanceReference {
-                target_position_m: local_from_target(self.target),
+                target_position_m: match self.phase {
+                    MissionPhase::Launch => self.config.launch_vector.local_target(),
+                    _ => local_from_target(self.target),
+                },
                 target_velocity_mps: match self.phase {
-                    MissionPhase::Launch => [0.0, 0.0, 28.0],
+                    MissionPhase::Launch => {
+                        self.config.launch_vector.velocity_along_vector(28.0)
+                    }
                     MissionPhase::Flight => [0.0, 0.0, 0.0],
                     MissionPhase::Landing => [0.0, 0.0, -8.0],
                     MissionPhase::PadInitialization | MissionPhase::Impact => [0.0; 3],
