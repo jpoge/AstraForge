@@ -41,9 +41,13 @@ const elements = {
   commandPanels: document.getElementById("command-panels"),
   systemsGrid: document.getElementById("systems-grid"),
   missionMap: document.getElementById("mission-map"),
+  missionMap3d: document.getElementById("mission-map-3d"),
   vehicleGeodetic: document.getElementById("vehicle-geodetic"),
   targetGeodetic: document.getElementById("target-geodetic"),
   mapView: document.getElementById("map-view"),
+  map3dView: document.getElementById("map-3d-view"),
+  map3dAltitude: document.getElementById("map-3d-altitude"),
+  map3dTargetAltitude: document.getElementById("map-3d-target-altitude"),
   truthPosition: document.getElementById("truth-position"),
   truthVelocity: document.getElementById("truth-velocity"),
   gncAttitude: document.getElementById("gnc-attitude"),
@@ -103,6 +107,7 @@ const elements = {
   targetEastInput: document.getElementById("target-offset-east-input"),
   targetNorthInput: document.getElementById("target-offset-north-input"),
   targetAltInput: document.getElementById("target-offset-alt-input"),
+  targetGuidanceToggle: document.getElementById("target-guidance-toggle"),
   controlledFlightToggle: document.getElementById("controlled-flight-toggle"),
   commandTemplate: document.getElementById("select-command-template"),
 };
@@ -148,7 +153,7 @@ function bindTopLevelControls() {
     }
   });
   elements.focusTargetButton.addEventListener("click", () => {
-    if (state.snapshot) {
+    if (state.snapshot && state.snapshot.target_guidance_enabled) {
       focusMapOn(localFromGeodetic(state.snapshot.target));
       renderMap(state.snapshot);
     }
@@ -198,6 +203,7 @@ function bindTopLevelControls() {
     });
   });
   elements.controlledFlightToggle.addEventListener("click", toggleControlledFlight);
+  elements.targetGuidanceToggle.addEventListener("click", toggleTargetGuidance);
   elements.targetOffsetForm.addEventListener("submit", handleTargetOffsetSubmit);
 }
 
@@ -230,6 +236,8 @@ function renderCommandPanels(commands) {
         "reset",
         "set_target",
         "configure_propulsion",
+        "set_controlled_flight",
+        "set_target_guidance",
       ].includes(command.name)
   );
   elements.commandPanels.innerHTML = "";
@@ -617,6 +625,9 @@ async function handleMapClick(event) {
     renderMap(state.snapshot);
     return;
   }
+  if (!state.snapshot.target_guidance_enabled) {
+    return;
+  }
   const geodetic = mapClickToTarget(event);
   if (!geodetic) {
     return;
@@ -680,6 +691,16 @@ async function toggleControlledFlight() {
   });
 }
 
+async function toggleTargetGuidance() {
+  if (!state.snapshot) {
+    return;
+  }
+  await sendCommand({
+    command: "set_target_guidance",
+    enabled: !state.snapshot.target_guidance_enabled,
+  });
+}
+
 function toggleRunLoop() {
   if (state.runTimer) {
     stopRunLoop();
@@ -732,7 +753,9 @@ function renderSnapshot(snapshot) {
   elements.vehicleModeValue.textContent = snapshot.telemetry.vehicle.mode;
   elements.fcModeValue.textContent = snapshot.flight_computer.mode;
   elements.vehicleGeodetic.textContent = formatGeodetic(snapshot.geodetic);
-  elements.targetGeodetic.textContent = formatGeodetic(snapshot.target);
+  elements.targetGeodetic.textContent = snapshot.target_guidance_enabled
+    ? formatGeodetic(snapshot.target)
+    : "Ballistic tracking";
 
   document.querySelectorAll(".phase-node").forEach((node) => {
     node.classList.toggle("active", node.dataset.phase === snapshot.phase);
@@ -746,11 +769,18 @@ function renderSnapshot(snapshot) {
   );
   elements.downrangeValue.textContent = `${formatNumber(snapshot.sensors.downrange_m)} m`;
   const targetTracking = snapshot.telemetry.targeting.target_tracking;
-  elements.targetRangeValue.textContent =
-    `${formatNumber(targetTracking.truth_range_m)} m truth / ${formatNumber(targetTracking.estimated_range_m)} m est`;
-  elements.crossTrackValue.textContent = `${formatNumber(targetTracking.cross_track_error_m)} m`;
-  elements.verticalErrorValue.textContent = `${formatNumber(targetTracking.vertical_error_m)} m`;
-  elements.closingSpeedValue.textContent = `${formatNumber(targetTracking.closing_speed_mps)} m/s`;
+  if (snapshot.target_guidance_enabled) {
+    elements.targetRangeValue.textContent =
+      `${formatNumber(targetTracking.truth_range_m)} m truth / ${formatNumber(targetTracking.estimated_range_m)} m est`;
+    elements.crossTrackValue.textContent = `${formatNumber(targetTracking.cross_track_error_m)} m`;
+    elements.verticalErrorValue.textContent = `${formatNumber(targetTracking.vertical_error_m)} m`;
+    elements.closingSpeedValue.textContent = `${formatNumber(targetTracking.closing_speed_mps)} m/s`;
+  } else {
+    elements.targetRangeValue.textContent = "Ballistic";
+    elements.crossTrackValue.textContent = "n/a";
+    elements.verticalErrorValue.textContent = "n/a";
+    elements.closingSpeedValue.textContent = "n/a";
+  }
 
   elements.radarAltitude.textContent = `${formatNumber(snapshot.sensors.radar_altitude_m)} m`;
   elements.verticalSpeed.textContent = `${formatNumber(snapshot.sensors.vertical_speed_mps)} m/s`;
@@ -786,6 +816,7 @@ function renderSnapshot(snapshot) {
   renderSystems(snapshot);
   renderMap(snapshot);
   renderLaunchVector(snapshot.launch_vector);
+  renderTargetGuidance(snapshot.target_guidance_enabled);
   renderControlledFlight(snapshot.controlled_flight_enabled);
   renderTargetOffset(snapshot.target_offset);
   renderTrends(snapshot);
@@ -852,7 +883,7 @@ function renderSystems(snapshot) {
     },
     {
       name: "GNC",
-      mode: "tracking",
+      mode: snapshot.target_guidance_enabled ? "tracking" : "ballistic",
       health: "nominal",
       detail: `${formatNumber(snapshot.systems.gnc_solution.position_m[2])} m alt`,
     },
@@ -875,6 +906,12 @@ function renderSystems(snapshot) {
 function renderMap(snapshot) {
   drawProjectedMap(snapshot);
   elements.mapView.textContent = `${state.map.plane} zoom ${state.map.zoom.toFixed(2)}`;
+  drawProjectedMap3d(snapshot);
+  elements.map3dView.textContent = "yaw 42 pitch 26";
+  elements.map3dAltitude.textContent = `${formatNumber(snapshot.truth.position_m[2])} m`;
+  elements.map3dTargetAltitude.textContent = snapshot.target_guidance_enabled
+    ? `${formatNumber(snapshot.target.altitude_m)} m`
+    : "Ballistic";
 }
 
 function drawProjectedMap(snapshot) {
@@ -895,8 +932,34 @@ function drawProjectedMap(snapshot) {
   drawMapAxes(ctx, width, height, centerX, centerY);
   drawMapTrail(ctx, state.history.map((point) => point.truthPosition), centerX, centerY, scale);
   drawMapMarker(ctx, snapshot.truth.position_m, centerX, centerY, scale, "#5dc2ff", "Vehicle");
-  drawMapMarker(ctx, localFromGeodetic(snapshot.target), centerX, centerY, scale, "#ffb84d", "Target");
+  if (snapshot.target_guidance_enabled) {
+    drawMapMarker(ctx, localFromGeodetic(snapshot.target), centerX, centerY, scale, "#ffb84d", "Target");
+  }
   drawLaunchVectorArrow(ctx, snapshot, centerX, centerY, scale);
+}
+
+function drawProjectedMap3d(snapshot) {
+  const canvas = elements.missionMap3d;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 720;
+  const height = canvas.clientHeight || 250;
+  if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const projection = map3dProjectionContext(snapshot, width, height);
+  drawMap3dGrid(ctx, width, height, projection);
+  drawMap3dAxes(ctx, projection);
+  drawMap3dTrail(ctx, state.history.map((point) => point.truthPosition), projection);
+  drawMap3dMarker(ctx, snapshot.truth.position_m, projection, "#5dc2ff", "Vehicle");
+  if (snapshot.target_guidance_enabled) {
+    drawMap3dMarker(ctx, localFromGeodetic(snapshot.target), projection, "#ffb84d", "Target");
+  }
+  drawLaunchVectorArrow3d(ctx, snapshot, projection);
 }
 
 function renderLaunchVector(vector) {
@@ -918,6 +981,15 @@ function renderControlledFlight(enabled) {
   }
   elements.controlledFlightToggle.textContent = `Controlled Flight: ${enabled ? "On" : "Off"}`;
   elements.controlledFlightToggle.classList.toggle("running", enabled);
+}
+
+function renderTargetGuidance(enabled) {
+  if (!elements.targetGuidanceToggle) {
+    return;
+  }
+  elements.targetGuidanceToggle.textContent = `Target Guidance: ${enabled ? "On" : "Off"}`;
+  elements.targetGuidanceToggle.classList.toggle("running", enabled);
+  elements.focusTargetButton.disabled = !enabled;
 }
 
 function renderTargetOffset(offset) {
@@ -1134,16 +1206,160 @@ function drawLaunchVectorArrow(ctx, snapshot, centerX, centerY, scale) {
   ctx.fill();
 }
 
+function map3dProjectionContext(snapshot, width, height) {
+  const targetLocal = snapshot.target_guidance_enabled ? localFromGeodetic(snapshot.target) : null;
+  const launchTip = addVec3(snapshot.truth.position_m, launchVectorToLocal(snapshot.launch_vector));
+  const points = state.history
+    .map((point) => point.truthPosition)
+    .concat([snapshot.truth.position_m, launchTip])
+    .concat(targetLocal ? [targetLocal] : []);
+  const projected = points.map(project3dPoint);
+  const xs = projected.map((point) => point.x);
+  const ys = projected.map((point) => point.y);
+  const spanX = Math.max(Math.max(...xs) - Math.min(...xs), 420);
+  const spanY = Math.max(Math.max(...ys) - Math.min(...ys), 260);
+  const scale = Math.min((width - 60) / spanX, (height - 50) / spanY);
+  return {
+    centerX: width * 0.5,
+    centerY: height * 0.62,
+    scale,
+  };
+}
+
+function project3dPoint(position) {
+  const yaw = radians(42);
+  const pitch = radians(26);
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+  const horizontal = position[0] * cosYaw - position[1] * sinYaw;
+  const depth = position[0] * sinYaw + position[1] * cosYaw;
+  const vertical = position[2] * cosPitch - depth * sinPitch;
+  return { x: horizontal, y: vertical };
+}
+
+function project3dToCanvas(position, projection) {
+  const projected = project3dPoint(position);
+  return {
+    x: projection.centerX + projected.x * projection.scale,
+    y: projection.centerY - projected.y * projection.scale,
+  };
+}
+
+function drawMap3dGrid(ctx, width, height, projection) {
+  ctx.strokeStyle = "rgba(145, 173, 182, 0.12)";
+  ctx.lineWidth = 1;
+  for (let meter = -600; meter <= 600; meter += 100) {
+    const eastLineStart = project3dToCanvas([-600, meter, 0], projection);
+    const eastLineEnd = project3dToCanvas([600, meter, 0], projection);
+    const northLineStart = project3dToCanvas([meter, -600, 0], projection);
+    const northLineEnd = project3dToCanvas([meter, 600, 0], projection);
+    ctx.beginPath();
+    ctx.moveTo(eastLineStart.x, eastLineStart.y);
+    ctx.lineTo(eastLineEnd.x, eastLineEnd.y);
+    ctx.moveTo(northLineStart.x, northLineStart.y);
+    ctx.lineTo(northLineEnd.x, northLineEnd.y);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "rgba(145, 173, 182, 0.72)";
+  ctx.font = "12px Segoe UI";
+  ctx.fillText("3D oblique", 14, 18);
+  ctx.fillText(`${formatNumber(100 / projection.scale)} m per grid`, 14, 34);
+}
+
+function drawMap3dAxes(ctx, projection) {
+  const origin = project3dToCanvas([0, 0, 0], projection);
+  const east = project3dToCanvas([180, 0, 0], projection);
+  const north = project3dToCanvas([0, 180, 0], projection);
+  const up = project3dToCanvas([0, 0, 180], projection);
+  drawMap3dAxis(ctx, origin, east, "#5dc2ff", "E");
+  drawMap3dAxis(ctx, origin, north, "#42d4a2", "N");
+  drawMap3dAxis(ctx, origin, up, "#ffb84d", "Z");
+}
+
+function drawMap3dAxis(ctx, start, end, color, label) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(start.x, start.y);
+  ctx.lineTo(end.x, end.y);
+  ctx.stroke();
+  ctx.font = "12px Segoe UI";
+  ctx.fillText(label, end.x + 6, end.y - 4);
+}
+
+function drawMap3dTrail(ctx, positions, projection) {
+  if (positions.length < 2) {
+    return;
+  }
+  ctx.strokeStyle = "#5dc2ff";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  positions.forEach((position, index) => {
+    const point = project3dToCanvas(position, projection);
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+    } else {
+      ctx.lineTo(point.x, point.y);
+    }
+  });
+  ctx.stroke();
+}
+
+function drawMap3dMarker(ctx, position, projection, color, label) {
+  const point = project3dToCanvas(position, projection);
+  ctx.strokeStyle = "rgba(255,255,255,0.85)";
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#e6f1f3";
+  ctx.font = "12px Segoe UI";
+  ctx.fillText(label, point.x + 9, point.y - 8);
+}
+
+function drawLaunchVectorArrow3d(ctx, snapshot, projection) {
+  const origin = project3dToCanvas(snapshot.truth.position_m, projection);
+  const launchTip = project3dToCanvas(
+    addVec3(snapshot.truth.position_m, launchVectorToLocal(snapshot.launch_vector)),
+    projection
+  );
+  ctx.strokeStyle = "rgba(255, 214, 86, 0.9)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(origin.x, origin.y);
+  ctx.lineTo(launchTip.x, launchTip.y);
+  ctx.stroke();
+  const angle = Math.atan2(launchTip.y - origin.y, launchTip.x - origin.x);
+  const headLength = 10;
+  ctx.fillStyle = "rgba(255, 214, 86, 0.9)";
+  ctx.beginPath();
+  ctx.moveTo(launchTip.x, launchTip.y);
+  ctx.lineTo(
+    launchTip.x - headLength * Math.cos(angle - Math.PI / 6),
+    launchTip.y - headLength * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.lineTo(
+    launchTip.x - headLength * Math.cos(angle + Math.PI / 6),
+    launchTip.y - headLength * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fill();
+}
+
 function launchVectorToLocal(vector) {
   const az = radians(vector.azimuth_deg);
   const el = radians(vector.elevation_deg);
   const horizontal = LAUNCH_VECTOR_DISPLAY_DISTANCE_M * Math.cos(el);
   const east = horizontal * Math.sin(az);
   const north = horizontal * Math.cos(az);
-  const altitude =
-    Number.isFinite(vector.altitude_m) && vector.altitude_m !== null
-      ? vector.altitude_m
-      : LAUNCH_VECTOR_DISPLAY_DISTANCE_M * Math.sin(el);
+  const altitudeOffset =
+    Number.isFinite(vector.altitude_m) && vector.altitude_m !== null ? vector.altitude_m : 0;
+  const altitude = LAUNCH_VECTOR_DISPLAY_DISTANCE_M * Math.sin(el) + altitudeOffset;
   return [east, north, altitude];
 }
 
@@ -1228,7 +1444,8 @@ function projectLocalToCanvas(position, centerX, centerY, scale) {
 
 function buildMapExtents(positions, vehiclePosition, targetPosition) {
   const projected = positions
-    .concat([vehiclePosition, targetPosition])
+    .concat([vehiclePosition])
+    .concat(targetPosition ? [targetPosition] : [])
     .map((position) => projectPlane(position));
   const xs = projected.map((point) => point[0]);
   const ys = projected.map((point) => point[1]);
@@ -1251,11 +1468,12 @@ function computeMapScale(extents, width, height) {
 }
 
 function mapProjectionContext(snapshot, width, height) {
-  const targetLocal = localFromGeodetic(snapshot.target);
+  const targetLocal = snapshot.target_guidance_enabled ? localFromGeodetic(snapshot.target) : null;
+  const launchTip = addVec3(snapshot.truth.position_m, launchVectorToLocal(snapshot.launch_vector));
   const extents = buildMapExtents(
     state.history.map((point) => point.truthPosition),
     snapshot.truth.position_m,
-    targetLocal
+    targetLocal || launchTip
   );
   const scale = computeMapScale(extents, width, height);
   return {

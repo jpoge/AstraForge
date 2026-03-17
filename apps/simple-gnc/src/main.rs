@@ -53,7 +53,7 @@ fn parse_cli() -> Cli {
         } else if arg == "--rate-hz" {
             if let Some(value) = args.next() {
                 if let Ok(rate_hz) = value.parse::<u32>() {
-                    cli.rate_hz_override = Some(rate_hz.max(1));
+                    cli.rate_hz_override = Some(rate_hz.clamp(1, 1000));
                 }
             }
         }

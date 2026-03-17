@@ -116,6 +116,30 @@
           </div>
         </section>
 
+        <section class="card map3d-card" data-card-id="map-3d">
+          <div class="card-head">
+            <h2>Mission Map 3D</h2>
+            <span class="muted">Fixed oblique view of vehicle, trail, target, and launch vector</span>
+          </div>
+          <div class="map-shell">
+            <canvas id="mission-map-3d" class="mission-map mission-map-3d"></canvas>
+            <div class="map-readout map-readout-3d">
+              <div>
+                <span class="label">Camera</span>
+                <strong id="map-3d-view">yaw 42 pitch 26</strong>
+              </div>
+              <div>
+                <span class="label">Vehicle Alt</span>
+                <strong id="map-3d-altitude">0 m</strong>
+              </div>
+              <div>
+                <span class="label">Target Alt</span>
+                <strong id="map-3d-target-altitude">0 m</strong>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="card launch-vector-card" data-card-id="launch-vector">
           <div class="card-head">
             <h2>Launch Vector</h2>
@@ -153,6 +177,9 @@
             <h2>Target Offset</h2>
             <span class="muted">East/north/altitude relative to launch site</span>
           </div>
+          <button id="target-guidance-toggle" type="button" class="accent-button">
+            Target Guidance: On
+          </button>
           <form id="target-offset-form" class="target-offset-form">
             <label>
               East (m)

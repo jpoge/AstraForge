@@ -124,6 +124,7 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
             "\"truth\":{},",
             "\"geodetic\":{},",
             "\"target\":{},",
+            "\"target_guidance_enabled\":{},",
             "\"target_offset\":{},",
             "\"has_left_pad\":{},",
             "\"launch_vector\":{},",
@@ -147,6 +148,7 @@ pub fn snapshot_json(snapshot: &SimulationSnapshot) -> String {
         truth_state_json(snapshot.truth),
         geodetic_position_json(snapshot.geodetic),
         target_json(snapshot.target),
+        snapshot.target_guidance_enabled,
         target_offset_json(snapshot.target_offset),
         snapshot.has_left_pad,
         launch_vector_json(snapshot.launch_vector),
@@ -189,6 +191,7 @@ pub fn schema_json() -> String {
             "\"truth\",",
             "\"geodetic\",",
             "\"target\",",
+            "\"target_guidance_enabled\",",
             "\"launch_vector\",",
             "\"controlled_flight_enabled\",",
             "\"target_offset\",",
@@ -208,6 +211,7 @@ pub fn schema_json() -> String {
             "\"set_phase\":{{\"fields\":[\"phase\"]}},",
             "\"set_phase_control\":{{\"fields\":[\"phase_control\"]}},",
             "\"set_target\":{{\"fields\":[\"latitude_deg\",\"longitude_deg\",\"altitude_m\"]}},",
+            "\"set_target_guidance\":{{\"fields\":[\"enabled\"]}},",
             "\"configure_launch_vector\":{{\"fields\":[\"azimuth_deg\",\"elevation_deg\",\"altitude_m\"]}},",
             "\"configure_target_offset\":{{\"fields\":[\"east_m\",\"north_m\",\"altitude_m\"]}},",
             "\"set_controlled_flight\":{{\"fields\":[\"enabled\"]}},",
@@ -287,6 +291,9 @@ pub fn parse_command_json(body: &str) -> Result<SimulatorCommand, SdkError> {
                 .ok_or(SdkError::InvalidConfig)?,
             altitude_m: extract_json_f64(body, "altitude_m").unwrap_or(0.0),
         })),
+        "set_target_guidance" => Ok(SimulatorCommand::SetTargetGuidance(
+            extract_json_bool(body, "enabled").ok_or(SdkError::InvalidConfig)?,
+        )),
         "configure_propulsion" => Ok(SimulatorCommand::ConfigurePropulsion(PropulsionState {
             throttle_percent: extract_json_u32(body, "throttle_percent")
                 .ok_or(SdkError::InvalidConfig)?,
@@ -715,7 +722,7 @@ fn telemetry_snapshot_json(snapshot: &SimulationSnapshot) -> String {
             "\"thermal\":{{\"mode\":\"{}\",\"health\":\"{}\",\"zones\":[{}, {}, {}]}},",
             "\"payload\":{{\"mode\":\"{}\",\"health\":\"{}\",\"current_a\":{}}},",
             "\"communications\":{{\"link_status\":\"{}\",\"health\":\"{}\",\"signal_strength_dbm\":{},\"latest_downlink_frame\":\"{}\"}},",
-            "\"targeting\":{{\"target\":{},\"vehicle_geodetic\":{},\"target_tracking\":{}}},",
+            "\"targeting\":{{\"enabled\":{},\"target\":{},\"vehicle_geodetic\":{},\"target_tracking\":{}}},",
             "\"propulsion\":{},",
             "\"guidance_navigation_control\":{{\"solution\":{},\"control_surfaces\":{},\"aerodynamics\":{}}},",
             "\"raw\":{{",
@@ -747,6 +754,7 @@ fn telemetry_snapshot_json(snapshot: &SimulationSnapshot) -> String {
         comm_health,
         snapshot.sensors.signal_strength_dbm,
         escape_json(&snapshot.telemetry.latest_downlink_frame),
+        snapshot.target_guidance_enabled,
         target_json(snapshot.target),
         geodetic_position_json(snapshot.geodetic),
         target_tracking_json(snapshot),
@@ -924,6 +932,12 @@ fn command_catalog() -> Vec<String> {
             "Set Target",
             "Set the landing or guidance target in geodetic coordinates.",
             "[{\"name\":\"latitude_deg\",\"type\":\"f64\",\"required\":true},{\"name\":\"longitude_deg\",\"type\":\"f64\",\"required\":true},{\"name\":\"altitude_m\",\"type\":\"f64\",\"required\":false,\"default\":0}]",
+        ),
+        command_descriptor_json(
+            "set_target_guidance",
+            "Target Guidance",
+            "Toggle whether GNC steers toward the selected target or follows a ballistic trajectory.",
+            "[{\"name\":\"enabled\",\"type\":\"bool\",\"required\":true}]",
         ),
         command_descriptor_json(
             "configure_propulsion",
@@ -1240,13 +1254,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_target_guidance_toggle_json() {
+        let command =
+            parse_command_json(r#"{"command":"set_target_guidance","enabled":false}"#)
+                .expect("parse");
+        assert_eq!(command, SimulatorCommand::SetTargetGuidance(false));
+    }
+
+    #[test]
     fn snapshot_json_contains_phase() {
         let sim = FullStackSim::new(SimConfig::default()).expect("build sim");
         let snapshot = snapshot_json(&sim.snapshot());
         assert!(snapshot.contains("\"api_version\":\"2026-03-15\""));
         assert!(snapshot.contains("\"schema_version\":\"1.1.0\""));
         assert!(snapshot.contains("\"phase\":\"pad\""));
+        assert!(snapshot.contains("\"target_guidance_enabled\":true"));
         assert!(snapshot.contains("\"telemetry\":{\"vehicle\":"));
+        assert!(snapshot.contains("\"targeting\":{\"enabled\":true"));
         assert!(snapshot.contains("\"raw\":{\"vehicle_mode_line\""));
         assert!(snapshot.contains("\"target_tracking\":{"));
     }
@@ -1258,6 +1282,7 @@ mod tests {
         assert!(schema.contains("\"snapshot_stream_event\":\"snapshot\""));
         assert!(schema.contains("\"POST /command\""));
         assert!(schema.contains("\"GET /events\""));
+        assert!(schema.contains("\"set_target_guidance\""));
     }
 
     #[test]

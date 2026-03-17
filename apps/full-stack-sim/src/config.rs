@@ -22,6 +22,7 @@ pub struct ScenarioConfig {
     pub target_offset_east_m: f64,
     pub target_offset_north_m: f64,
     pub target_offset_altitude_m: f64,
+    pub target_guidance_enabled: bool,
     pub controlled_flight_enabled: bool,
 }
 
@@ -91,6 +92,7 @@ impl ScenarioConfig {
                 "target_offset_east_m" => config.target_offset_east_m = parse_f64(value)?,
                 "target_offset_north_m" => config.target_offset_north_m = parse_f64(value)?,
                 "target_offset_altitude_m" => config.target_offset_altitude_m = parse_f64(value)?,
+                "target_guidance_enabled" => config.target_guidance_enabled = parse_bool(value)?,
                 "controlled_flight_enabled" => {
                     config.controlled_flight_enabled = parse_bool(value)?
                 }
@@ -124,6 +126,7 @@ impl Default for ScenarioConfig {
             target_offset_east_m: sim.target_offset.east_m,
             target_offset_north_m: sim.target_offset.north_m,
             target_offset_altitude_m: sim.target_offset.altitude_m,
+            target_guidance_enabled: sim.target_guidance_enabled,
             controlled_flight_enabled: sim.controlled_flight_enabled,
         }
     }
@@ -306,6 +309,7 @@ pub fn load_sim_config(path: impl AsRef<Path>) -> Result<SimConfig, SdkError> {
             north_m: scenario.target_offset_north_m,
             altitude_m: scenario.target_offset_altitude_m,
         },
+        target_guidance_enabled: scenario.target_guidance_enabled,
         controlled_flight_enabled: scenario.controlled_flight_enabled,
     })
 }

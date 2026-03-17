@@ -92,7 +92,7 @@ impl GncConfig {
     #[must_use]
     pub fn ekf_period(&self) -> DurationMs {
         let clamped_rate = self.ekf_rate_hz.max(1);
-        DurationMs(1000 / u64::from(clamped_rate))
+        DurationMs((1000 / u64::from(clamped_rate)).max(1))
     }
 }
 
@@ -581,6 +581,16 @@ mod tests {
             .receive(&GNC_SOLUTION_TOPIC)
             .expect("read bus")
             .is_some());
+    }
+
+    #[test]
+    fn ekf_period_never_reaches_zero_for_high_rates() {
+        let config = GncConfig {
+            ekf_rate_hz: 5_000,
+            ..GncConfig::default()
+        };
+
+        assert_eq!(config.ekf_period().0, 1);
     }
 
     #[test]

@@ -51,6 +51,8 @@ fn run_host_sim(config: &MissionConfig) -> Result<LaunchReport, SdkError> {
     let mut truth_attitude = [0.0_f64, 0.0_f64, 0.0_f64];
     let nav_magnetic_field = [0.8_f64, 0.1_f64, -0.2_f64];
     let steps = ((config.sim_duration_s * 1000.0) / config.imu_period_ms as f64).round() as u32;
+    let mut next_gps_time_ms = config.gps_period_ms;
+    let mut next_magnetometer_time_ms = config.magnetometer_period_ms;
 
     {
         let mut app = component.lock().map_err(|_| SdkError::BackendFailure)?;
@@ -96,19 +98,26 @@ fn run_host_sim(config: &MissionConfig) -> Result<LaunchReport, SdkError> {
                 gyro_body_rps: body_rates,
             });
 
-            if now.0 % config.gps_period_ms == 0 {
+            if now.0 >= next_gps_time_ms {
                 app.submit_gps(GpsReading {
                     timestamp: now,
                     position_m: truth_position,
                     velocity_mps: truth_velocity,
                 });
+                while next_gps_time_ms <= now.0 {
+                    next_gps_time_ms = next_gps_time_ms.saturating_add(config.gps_period_ms);
+                }
             }
 
-            if now.0 % config.magnetometer_period_ms == 0 {
+            if now.0 >= next_magnetometer_time_ms {
                 app.submit_magnetometer(MagnetometerReading {
                     timestamp: now,
                     magnetic_field_body,
                 });
+                while next_magnetometer_time_ms <= now.0 {
+                    next_magnetometer_time_ms = next_magnetometer_time_ms
+                        .saturating_add(config.magnetometer_period_ms);
+                }
             }
 
             app.step(&ctx)?;
@@ -121,10 +130,7 @@ fn run_host_sim(config: &MissionConfig) -> Result<LaunchReport, SdkError> {
         let _responses = runtime.supervisor_step(now)?;
     }
 
-    let last_topic_payload = platform
-        .bus()
-        .receive(&GNC_SOLUTION_TOPIC)?
-        .map(|payload| String::from_utf8_lossy(&payload).to_string());
+    let last_topic_payload = read_latest_payload(platform.bus(), &GNC_SOLUTION_TOPIC)?;
 
     let final_solution = component
         .lock()
@@ -174,6 +180,17 @@ fn multiply_matrix_vec3(matrix: &[[f64; 3]; 3], vector: &[f64; 3]) -> [f64; 3] {
     result
 }
 
+fn read_latest_payload(
+    bus: &dyn MessageBus,
+    topic: &fsw_sdk_core::TopicName,
+) -> Result<Option<String>, SdkError> {
+    let mut latest = None;
+    while let Some(payload) = bus.receive(topic)? {
+        latest = Some(String::from_utf8_lossy(&payload).into_owned());
+    }
+    Ok(latest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::run_mission;
@@ -190,5 +207,20 @@ mod tests {
         assert_eq!(report.platform, "host-sim");
         assert!(report.last_topic_payload.is_some());
         assert!(report.final_solution.timestamp.0 > 0);
+    }
+
+    #[test]
+    fn host_sim_launcher_handles_non_divisible_sensor_periods() {
+        let config = MissionConfig {
+            sim_duration_s: 0.32,
+            imu_period_ms: 20,
+            gps_period_ms: 150,
+            magnetometer_period_ms: 70,
+            ..MissionConfig::default()
+        };
+
+        let report = run_mission(&config).expect("launch");
+        assert!(report.final_solution.timestamp.0 >= 300);
+        assert!(report.last_topic_payload.is_some());
     }
 }

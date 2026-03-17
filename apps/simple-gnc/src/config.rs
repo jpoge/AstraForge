@@ -80,6 +80,7 @@ impl MissionConfig {
         }
 
         if config.ekf_rate_hz == 0
+            || config.ekf_rate_hz > 1000
             || config.imu_period_ms == 0
             || config.gps_period_ms == 0
             || config.magnetometer_period_ms == 0
@@ -177,5 +178,14 @@ mod tests {
         assert_eq!(config.process_accel_noise, 0.5);
         assert_eq!(config.imu_period_ms, 10);
         assert_eq!(config.sim_duration_s, 3.0);
+    }
+
+    #[test]
+    fn rejects_ekf_rates_above_1khz() {
+        let result = MissionConfig::parse(
+            "platform = host-sim\nekf_rate_hz = 1001\nimu_period_ms = 10\ngps_period_ms = 100\nmagnetometer_period_ms = 50\nheartbeat_timeout_ms = 300\n",
+        );
+
+        assert!(result.is_err());
     }
 }

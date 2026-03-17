@@ -213,6 +213,7 @@ body {
 .command-card { grid-column: span 6; }
 .systems-card { grid-column: span 4; }
 .map-card { grid-column: span 6; }
+.map3d-card { grid-column: span 6; }
 .telemetry-card { grid-column: span 3; }
 .target-offset-card { grid-column: span 3; }
 .propulsion-card { grid-column: span 3; }
@@ -392,6 +393,17 @@ button.running {
   cursor: grab;
   background:
     linear-gradient(180deg, rgba(9, 29, 42, 0.98), rgba(4, 16, 23, 0.98));
+}
+
+.mission-map-3d {
+  background:
+    radial-gradient(circle at top, rgba(93, 194, 255, 0.08), transparent 45%),
+    linear-gradient(180deg, rgba(14, 30, 44, 0.98), rgba(4, 16, 23, 0.98));
+  cursor: default;
+}
+
+.map-readout-3d strong {
+  color: var(--accent-2);
 }
 
 .mission-map.dragging {
@@ -598,6 +610,7 @@ button.running {
   .command-card,
   .systems-card,
   .map-card,
+  .map3d-card,
   .telemetry-card,
   .trends-card,
   .propulsion-card,
@@ -777,6 +790,7 @@ button.running {
   .command-card,
   .systems-card,
   .map-card,
+  .map3d-card,
   .telemetry-card,
   .trends-card,
   .propulsion-card,
